@@ -16,6 +16,8 @@ import {
   handleLeaveRoom,
   removePlayer,
   startRoomCleanup,
+  getAllRooms,
+  adminDeleteRoom,
 } from './rooms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,7 +33,28 @@ app.use(express.static(clientDist));
 const assetsDir = path.resolve(__dirname, '../../assets');
 app.use('/assets', express.static(assetsDir));
 
-// 所有非 API 路由返回 index.html（SPA 支持）
+// ===== 房间管理 API =====
+app.get('/api/rooms', (_req, res) => {
+  res.json(getAllRooms());
+});
+
+app.delete('/api/rooms/:roomId', (req, res) => {
+  const { roomId } = req.params;
+  const deleted = adminDeleteRoom(roomId);
+  if (deleted) {
+    res.json({ success: true, message: `房间 ${roomId} 已删除` });
+  } else {
+    res.status(404).json({ success: false, error: '房间不存在' });
+  }
+});
+
+// ===== 后台管理页面 =====
+app.get('/admin', (_req, res) => {
+  const adminPath = path.resolve(__dirname, 'admin.html');
+  res.sendFile(adminPath);
+});
+
+// 所有非 API、非 /admin 路由返回 index.html（SPA 支持）
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientDist, 'index.html'));
 });
@@ -207,6 +230,11 @@ io.on('connection', (socket) => {
   socket.on('leave_room', () => {
     console.log(`[离开房间] ${socket.id}`);
     handleLeaveRoom(socket.id);
+  });
+
+  // ===== 获取房间列表 =====
+  socket.on('get_rooms', (callback) => {
+    callback(getAllRooms());
   });
 
   // ===== 断线处理 =====

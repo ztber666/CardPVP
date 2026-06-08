@@ -197,6 +197,42 @@ export function handleLeaveRoom(socketId: string): string | null {
   return null;
 }
 
+// ===== 获取所有房间信息 =====
+export function getAllRooms(): Array<{
+  id: string;
+  playerCount: number;
+  players: { id: string; name: string }[];
+  status: 'waiting' | 'playing' | 'finished';
+  elapsed: number; // 已过秒数
+  createdAt: number;
+}> {
+  const now = Date.now();
+  const result: ReturnType<typeof getAllRooms> = [];
+  for (const [roomId, room] of rooms.entries()) {
+    let status: 'waiting' | 'playing' | 'finished' = 'waiting';
+    if (room.gameState) {
+      status = room.gameState.phase === 'gameOver' ? 'finished' : 'playing';
+    }
+    result.push({
+      id: roomId,
+      playerCount: room.players.length,
+      players: room.players.map(p => ({ id: p.id, name: p.name })),
+      status,
+      elapsed: Math.floor((now - room.createdAt) / 1000),
+      createdAt: room.createdAt,
+    });
+  }
+  return result;
+}
+
+// ===== 管理员删除房间 =====
+export function adminDeleteRoom(roomId: string): boolean {
+  if (!rooms.has(roomId)) return false;
+  rooms.delete(roomId);
+  console.log(`[管理员] 删除房间 ${roomId}`);
+  return true;
+}
+
 // ===== 清理过期房间（每30秒检查一次） =====
 const ROOM_TTL = 5 * 60 * 1000; // 5分钟
 export function startRoomCleanup(): void {

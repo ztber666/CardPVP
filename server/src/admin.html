@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardPVP 管理后台</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0a0a14;
+    color: #e0e0e8;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 28px; flex-wrap: wrap; gap: 12px;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .logo { font-size: 22px; font-weight: 700; color: #f0c060; letter-spacing: 0.5px; }
+  .logo span { color: #8888aa; font-weight: 400; }
+  .subtitle { font-size: 13px; color: #6666aa; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .live-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+    background: rgba(46, 204, 113, 0.12); color: #2ecc71;
+    border: 1px solid rgba(46, 204, 113, 0.25);
+  }
+  .live-badge .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #2ecc71; animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* Stats bar */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px; padding: 16px 20px;
+  }
+  .stat-card .num { font-size: 28px; font-weight: 700; }
+  .stat-card .label { font-size: 12px; color: #6666aa; margin-top: 4px; }
+  .stat-card.waiting .num { color: #f0c060; }
+  .stat-card.playing .num { color: #3498db; }
+  .stat-card.finished .num { color: #6666aa; }
+
+  /* Refresh bar */
+  .refresh-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .refresh-bar .info { font-size: 13px; color: #6666aa; }
+  .refresh-bar .info strong { color: #a0a0c0; }
+  .refresh-btn {
+    padding: 6px 16px; border-radius: 8px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+    color: #a0a0c0; font-size: 13px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .refresh-btn:hover { background: rgba(255,255,255,0.1); color: #e0e0e8; }
+
+  /* Table */
+  .table-wrap {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px; overflow: hidden;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 14px 18px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.8px; color: #5555aa;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  td {
+    padding: 14px 18px; font-size: 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.03); }
+
+  .room-id {
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 16px; font-weight: 600; color: #f0c060;
+    letter-spacing: 2px;
+  }
+  .player-name {
+    display: inline-block; padding: 3px 10px; border-radius: 6px;
+    font-size: 13px; background: rgba(255,255,255,0.05);
+    margin: 2px 4px 2px 0;
+  }
+  .player-name:only-child { margin: 0; }
+
+  .status-badge {
+    display: inline-block; padding: 4px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+  }
+  .status-badge.waiting { background: rgba(240, 192, 96, 0.12); color: #f0c060; }
+  .status-badge.playing { background: rgba(52, 152, 219, 0.12); color: #3498db; }
+  .status-badge.finished { background: rgba(102, 102, 170, 0.12); color: #6666aa; }
+
+  .elapsed { font-size: 13px; color: #8888aa; font-variant-numeric: tabular-nums; }
+  .empty-row td {
+    text-align: center; padding: 48px 18px;
+    color: #5555aa; font-size: 14px;
+  }
+
+  .del-btn {
+    padding: 6px 14px; border-radius: 8px;
+    background: rgba(231, 76, 60, 0.08); border: 1px solid rgba(231, 76, 60, 0.15);
+    color: #e74c3c; font-size: 12px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .del-btn:hover { background: rgba(231, 76, 60, 0.18); }
+
+  /* Footer */
+  .footer {
+    margin-top: 24px; text-align: center;
+    font-size: 12px; color: #4444aa;
+  }
+  .footer a { color: #6666bb; text-decoration: none; }
+  .footer a:hover { color: #8888cc; }
+
+  @media (max-width: 640px) {
+    body { padding: 16px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    th, td { padding: 10px 12px; }
+    .header { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">🃏 CardPVP <span>|</span> 管理后台</div>
+      <div class="subtitle">房间管理</div>
+    </div>
+    <div class="header-right">
+      <span class="live-badge"><span class="dot"></span> 实时</span>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats" id="stats">
+    <div class="stat-card">
+      <div class="num" id="totalRooms">0</div>
+      <div class="label">总房间数</div>
+    </div>
+    <div class="stat-card waiting">
+      <div class="num" id="waitingCount">0</div>
+      <div class="label">等待中</div>
+    </div>
+    <div class="stat-card playing">
+      <div class="num" id="playingCount">0</div>
+      <div class="label">对战中</div>
+    </div>
+    <div class="stat-card finished">
+      <div class="num" id="finishedCount">0</div>
+      <div class="label">已结束</div>
+    </div>
+  </div>
+
+  <!-- Refresh -->
+  <div class="refresh-bar">
+    <div class="info">共 <strong id="roomCountLabel">0</strong> 个房间 · 每 <strong>3</strong> 秒自动刷新</div>
+    <button class="refresh-btn" onclick="refresh()">⟳ 刷新</button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>房间号</th>
+          <th>玩家</th>
+          <th>状态</th>
+          <th>已过时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="roomList">
+        <tr class="empty-row"><td colspan="5">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    CardPVP · <a href="javascript:void(0)" onclick="window.location.href='/'">返回游戏大厅</a>
+  </div>
+</div>
+
+<script>
+let refreshTimer = null;
+
+function formatTime(seconds) {
+  if (seconds < 60) return `${seconds}秒`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) return `${m}分${s}秒`;
+  const h = Math.floor(m / 60);
+  return `${h}时${m % 60}分`;
+}
+
+function statusText(status) {
+  switch (status) {
+    case 'waiting': return '等待中';
+    case 'playing': return '对战中';
+    case 'finished': return '已结束';
+    default: return status;
+  }
+}
+
+function statusIcon(status) {
+  switch (status) {
+    case 'waiting': return '⏳';
+    case 'playing': return '⚔️';
+    case 'finished': return '🏁';
+    default: return '●';
+  }
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/rooms');
+    const rooms = await res.json();
+    render(rooms);
+  } catch (err) {
+    console.error('Failed to fetch rooms:', err);
+  }
+}
+
+function render(rooms) {
+  // Stats
+  document.getElementById('totalRooms').textContent = rooms.length;
+  document.getElementById('roomCountLabel').textContent = rooms.length;
+  document.getElementById('waitingCount').textContent = rooms.filter(r => r.status === 'waiting').length;
+  document.getElementById('playingCount').textContent = rooms.filter(r => r.status === 'playing').length;
+  document.getElementById('finishedCount').textContent = rooms.filter(r => r.status === 'finished').length;
+
+  // Table
+  const tbody = document.getElementById('roomList');
+
+  if (rooms.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">暂无房间</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rooms.map(room => `
+    <tr>
+      <td><span class="room-id">${room.id}</span></td>
+      <td>
+        ${room.players.length > 0
+          ? room.players.map(p => `<span class="player-name">${escHtml(p.name)}</span>`).join('')
+          : '<span style="color:#5555aa;font-size:13px;">—</span>'
+        }
+      </td>
+      <td><span class="status-badge ${room.status}">${statusIcon(room.status)} ${statusText(room.status)}</span></td>
+      <td><span class="elapsed">${formatTime(room.elapsed)}</span></td>
+      <td><button class="del-btn" onclick="deleteRoom('${room.id}')">✕ 删除</button></td>
+    </tr>
+  `).join('');
+}
+
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function deleteRoom(roomId) {
+  if (!confirm(`确定要删除房间 ${roomId} 吗？`)) return;
+  try {
+    const res = await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      await refresh();
+    } else {
+      alert('删除失败：' + data.error);
+    }
+  } catch (err) {
+    alert('删除失败：网络错误');
+  }
+}
+
+// Start auto-refresh
+refresh();
+refreshTimer = setInterval(refresh, 3000);
+</script>
+</body>
+</html>
