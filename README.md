@@ -29,6 +29,7 @@ npm run dev
 
 - 前端：http://localhost:5173
 - 后端：http://localhost:3001
+- 管理后台：http://localhost:3001/admin
 
 ## 游戏规则
 
@@ -91,6 +92,17 @@ CardPVP/
 │   └── icon/                # 类型图标
 └── package.json             # 根 scripts（dev/build/start）
 ```
+
+## 管理后台
+
+服务端内置了房间管理后台，方便开发调试：
+
+- **访问地址**：`http://localhost:3001/admin`
+- **功能**：
+  - 查看所有房间（房间号、玩家、状态、创建时间）
+  - 统计面板：等待中 / 对战中 / 已结束
+  - 强制删除任意房间
+  - 实时自动刷新（3 秒间隔）
 
 ## 开发
 
