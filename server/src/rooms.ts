@@ -1,5 +1,9 @@
 import { GameState, GamePhase } from '../../shared/types';
-import { createGame, initGame, startTurn, endTurn, playCard, PlayCardResult, discardFromHand, unequipCard } from '../../shared/gameEngine';
+import {
+  createGame, initGame, startTurn, endTurn, playCard, PlayCardResult,
+  discardFromHand, unequipCard, handleGuessWeight, handleEnchantDiscard, handleDraftPick,
+  handleBucketChoice,
+} from '../../shared/gameEngine';
 import { validatePlayCard, validateEndTurn } from '../../shared/validation';
 
 /**
@@ -223,6 +227,46 @@ export function getAllRooms(): Array<{
     });
   }
   return result;
+}
+
+// ===== 侦测器：处理猜测 =====
+export function handleGuessWeightAction(socketId: string, guess: number): { success: boolean; gameState?: GameState; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+  const room = rooms.get(roomInfo.roomId);
+  if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
+  room.gameState = handleGuessWeight(room.gameState, roomInfo.playerId, guess);
+  return { success: true, gameState: room.gameState };
+}
+
+// ===== 附魔台：处理丢弃 =====
+export function handleEnchantDiscardAction(socketId: string, cardId: string): { success: boolean; gameState?: GameState; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+  const room = rooms.get(roomInfo.roomId);
+  if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
+  room.gameState = handleEnchantDiscard(room.gameState, roomInfo.playerId, cardId);
+  return { success: true, gameState: room.gameState };
+}
+
+// ===== 运输矿车：处理选牌 =====
+export function handleDraftPickAction(socketId: string, cardIndex: number): { success: boolean; gameState?: GameState; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+  const room = rooms.get(roomInfo.roomId);
+  if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
+  room.gameState = handleDraftPick(room.gameState, roomInfo.playerId, cardIndex);
+  return { success: true, gameState: room.gameState };
+}
+
+// ===== 水桶：选择封锁类型 =====
+export function handleBucketChoiceAction(socketId: string, lockType: 'action' | 'strategy'): { success: boolean; gameState?: GameState; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+  const room = rooms.get(roomInfo.roomId);
+  if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
+  room.gameState = handleBucketChoice(room.gameState, roomInfo.playerId, lockType);
+  return { success: true, gameState: room.gameState };
 }
 
 // ===== 管理员删除房间 =====

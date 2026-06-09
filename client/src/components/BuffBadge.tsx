@@ -4,9 +4,8 @@ import { ActiveBuff, BUFF_NAMES, BuffType } from '@shared/types';
 // BuffType → assets/buff/ 图片编号
 const BUFF_ICON_MAP: Record<string, number> = {
   strength: 1, weakness: 2, resistance: 3, vuln: 4, heal: 5,
-  wither: 6, shield: 7, fireResist: 8, poison: 9, blight: 10,
-  charge: 11, thorns: 12, wet: 13,
-  healBoost: 14, lockAction: 15,
+  wither: 6, shield: 7, fireResist: 8, poison: 9, fireVuln: 10,
+  charge: 11, healBoost: 12, lockAction: 13, lockStrategy: 14, fireDamage: 0,
 };
 
 const BUFF_COLORS: Record<string, string> = {
@@ -14,7 +13,7 @@ const BUFF_COLORS: Record<string, string> = {
   resistance: 'bg-blue-100 border-blue-200', vuln: 'bg-yellow-100 border-yellow-200',
   heal: 'bg-green-100 border-green-200', wither: 'bg-gray-100 border-gray-200',
   shield: 'bg-cyan-100 border-cyan-200', fireResist: 'bg-orange-100 border-orange-200',
-  poison: 'bg-emerald-100 border-emerald-200', blight: 'bg-amber-100 border-amber-200',
+  poison: 'bg-emerald-100 border-emerald-200', fireVuln: 'bg-amber-100 border-amber-200',
   charge: 'bg-pink-100 border-pink-200', thorns: 'bg-rose-100 border-rose-200',
   wet: 'bg-sky-100 border-sky-200',
 };
@@ -29,10 +28,8 @@ const BUFF_DESCRIPTIONS: Record<string, string> = {
   [BuffType.Shield]: '受到物理/火焰伤害时消耗 1 层，抵消 1 点伤害。',
   [BuffType.FireResist]: '受到的火焰伤害减少，每层抵消 1 点火焰伤害。',
   [BuffType.Poison]: '回血后减少 2 点血量（每回合限 2 次）。',
-  [BuffType.Blight]: '回血/受到火焰伤害时消耗 1 层，减少 1 点回血/火焰伤害 +1。',
+  [BuffType.FireVuln]: '受到火焰伤害时消耗 1 层，使火焰伤害 +1。',
   [BuffType.Charge]: '造成物理伤害时消耗全部层数，使本次伤害力量和凋零增加等量值。',
-  [BuffType.Thorns]: '每回合轮到附着对象时增加 2 层凋零。',
-  [BuffType.Wet]: '免疫火焰伤害，移除火焰/枯萎效果。',
   [BuffType.HealBoost]: '本回合回血时额外多回层数等量的血量。',
   [BuffType.LockAction]: '下回合无法使用行动牌。',
 };

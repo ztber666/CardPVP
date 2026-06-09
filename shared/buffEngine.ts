@@ -15,7 +15,7 @@ export function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
-function getBuffStacks(player: PlayerState, type: BuffType): number {
+export function getBuffStacks(player: PlayerState, type: BuffType): number {
   return player.buffs
     .filter(b => b.buffType === type)
     .reduce((sum, b) => sum + b.stacks, 0);
@@ -36,6 +36,17 @@ function addBuff(
   const p = deepClonePlayer(player);
   // 非正数层数/强度时跳过
   if (stacks <= 0 || value <= 0) return p;
+
+  // 永久状态（无持续时间）且已有同类型永久状态 → 合并层数
+  if (duration === undefined) {
+    const existing = p.buffs.find(b => b.buffType === type && b.remainingTurns === undefined);
+    if (existing) {
+      existing.stacks += stacks;
+      existing.value = Math.max(existing.value, value);
+      return p;
+    }
+  }
+
   p.buffs.push({
     buffType: type,
     value,
@@ -46,7 +57,7 @@ function addBuff(
   return p;
 }
 
-function consumeBuffStacks(player: PlayerState, type: BuffType, amount: number): PlayerState {
+export function consumeBuffStacks(player: PlayerState, type: BuffType, amount: number): PlayerState {
   const p = deepClonePlayer(player);
   let remaining = amount;
   p.buffs = p.buffs.filter(b => {
@@ -88,24 +99,22 @@ export function calculateDamage(
   // 基础伤害取整（非正数视为0，但仍算1次伤害事件）
   let damage = Math.max(0, base);
 
-  // 潮湿：免疫火焰伤害
-  if (isFire && findBuff(defender_, BuffType.Wet)) {
-    return { damage: 0, newAttacker: attacker_, newDefender: defender_ };
-  }
-
   // 攻击者 Buff
   damage += getBuffStacks(attacker_, BuffType.Strength);
   damage -= getBuffStacks(attacker_, BuffType.Weakness);
 
   // 防御者 Buff
   if (isFire) {
-    damage -= getBuffStacks(defender_, BuffType.FireResist);
-    // 枯萎：受到火焰伤害时消耗n层，伤害+n
-    const bstacks = getBuffStacks(defender_, BuffType.Blight);
-    if (bstacks > 0) {
-      const consume = Math.min(bstacks, Math.max(0, damage));
+    // 抗火：免疫火焰伤害
+    if (getBuffStacks(defender_, BuffType.FireResist) > 0) {
+      return { damage: 0, newAttacker: attacker_, newDefender: defender_ };
+    }
+    // 火焰易伤：受到火焰伤害时消耗n层，伤害+n
+    const fvStacks = getBuffStacks(defender_, BuffType.FireVuln);
+    if (fvStacks > 0) {
+      const consume = Math.min(fvStacks, Math.max(0, damage));
       if (consume > 0) {
-        defender_ = consumeBuffStacks(defender_, BuffType.Blight, consume);
+        defender_ = consumeBuffStacks(defender_, BuffType.FireVuln, consume);
         damage += consume;
       }
     }
@@ -159,6 +168,11 @@ export function calculateHeal(base: number, target: PlayerState): HealResult {
     heal += healBoostBuff.stacks;
   }
 
+  // 丛林（场地）：回血时额外回复1点血
+  if (target_.equipment?.field?.name === '丛林') {
+    heal += 1;
+  }
+
   // 凋零：消耗1层，减少1点回血
   const witherBuff = findBuff(target_, BuffType.Wither);
   if (witherBuff && witherBuff.stacks > 0) {
@@ -166,18 +180,19 @@ export function calculateHeal(base: number, target: PlayerState): HealResult {
     heal = Math.max(0, heal - 1);
   }
 
-  // 枯萎：消耗n层，减少n点回血
-  const blightStacks = getBuffStacks(target_, BuffType.Blight);
-  if (blightStacks > 0 && heal > 0) {
-    const consume = Math.min(blightStacks, heal);
-    target_ = consumeBuffStacks(target_, BuffType.Blight, consume);
-    heal = Math.max(0, heal - consume);
-  }
-
   // 执行回血
   const oldHp = target_.hp;
   target_.hp = Math.min(target_.maxHp, target_.hp + heal);
   const overflow = (oldHp + heal) - target_.hp;
+
+  // 丛林：回血时若有凋零则生命上限+1（每回合1次）
+  if (target_.equipment?.field?.name === '丛林' && heal > 0 && !target_.jungleHpUpTriggered) {
+    const hasWither = target_.buffs.some(b => b.buffType === BuffType.Wither && b.stacks > 0);
+    if (hasWither) {
+      target_.maxHp += 1;
+      target_.jungleHpUpTriggered = true;
+    }
+  }
 
   // 金护腿：溢出治疗转化为护盾（最多6点）
   if (overflow > 0 && target_.equipment?.equip?.name === '金护腿') {
@@ -210,7 +225,7 @@ export function applyEffectToPlayer(
 ): PlayerState {
   switch (buffType) {
     case BuffType.Strength:
-      return addBuff(player, BuffType.Strength, value, value, undefined, sourceCardId);
+      return addBuff(player, BuffType.Strength, value, value, duration, sourceCardId);
     case BuffType.Weakness:
       return addBuff(player, BuffType.Weakness, value, value, duration, sourceCardId);
     case BuffType.Resistance:
@@ -228,25 +243,22 @@ export function applyEffectToPlayer(
       return addBuff(player, BuffType.FireResist, value, value, duration, sourceCardId);
     case BuffType.Poison:
       return addBuff(player, BuffType.Poison, value, value, duration, sourceCardId);
-    case BuffType.Blight: {
-      // 潮湿免疫枯萎
-      if (findBuff(player, BuffType.Wet)) return player;
-      return addBuff(player, BuffType.Blight, value, value, duration, sourceCardId);
-    }
+    case BuffType.FireVuln:
+      return addBuff(player, BuffType.FireVuln, value, value, duration, sourceCardId);
     case BuffType.Charge:
-      return addBuff(player, BuffType.Charge, value, value, undefined, sourceCardId);
-    case BuffType.Thorns:
-      return addBuff(player, BuffType.Thorns, value, value, duration, sourceCardId);
-    case BuffType.Wet: {
-      let w = addBuff(player, BuffType.Wet, value, value, duration, sourceCardId);
-      // 潮湿移除枯萎
-      w = removeBuff(w, BuffType.Blight);
-      return w;
-    }
+      return addBuff(player, BuffType.Charge, value, value, duration, sourceCardId);
     case BuffType.HealBoost:
-      return addBuff(player, BuffType.HealBoost, value, value, 1, sourceCardId);
+      return addBuff(player, BuffType.HealBoost, value, value, duration, sourceCardId);
     case BuffType.LockAction:
       return addBuff(player, BuffType.LockAction, value, value, duration, sourceCardId);
+    case BuffType.LockStrategy:
+      return addBuff(player, BuffType.LockStrategy, value, value, duration, sourceCardId);
+    case BuffType.FireDamage:
+      return addBuff(player, BuffType.FireDamage, value, value, duration, sourceCardId);
+    case BuffType.WitherOnDraw:
+      return addBuff(player, BuffType.WitherOnDraw, value, value, duration, sourceCardId);
+    case BuffType.DamageBoost:
+      return addBuff(player, BuffType.DamageBoost, value, value, duration, sourceCardId);
     case BuffType.Damage:
       return player;
     case BuffType.DamageOnDiscard:
@@ -262,14 +274,42 @@ export function applyEffectToPlayer(
 export function processTurnStartBuffs(player: PlayerState): PlayerState {
   let p = deepClonePlayer(player);
 
-  // 尖刺：每回合轮到附着对象时增加2层凋零
-  // 注意：这里"轮到"应该是指回合开始时，给对手加
-  // 尖刺的实际效果在 gameEngine 中处理，因为需要跨玩家
-  // 这里只是重置回合计数器
+  // 重置回合计数器
   p.poisonTriggerCountThisTurn = 0;
 
-  // 刷新装备状态（装备在轮到自己回合时刷新状态）
-  // 目前装备的"刷新"概念未在规则中明确定义为具体效果，保留钩子
+  // 治愈（buff5）：每回合开始时回复 value 点血量，duration控制持续回合数
+  const healBuffs = p.buffs.filter(b => b.buffType === BuffType.Heal);
+  for (const hb of healBuffs) {
+    if (hb.value > 0) {
+      p.hp = Math.min(p.maxHp, p.hp + hb.value);
+    }
+  }
+  // 不在这里过滤 Heal buff——由回合结束的 duration -1 机制处理移除
+
+  // 刷怪笼（条件丢弃）：每回合检查手牌是否有烟花
+  const cdBuff = p.buffs.find(b => b.buffType === BuffType.ConditionalDiscard);
+  if (cdBuff && cdBuff.stacks > 0) {
+    const fireworkIdx = p.hand.findIndex(c => c.name === '烟花');
+    if (fireworkIdx !== -1) {
+      const [discarded] = p.hand.splice(fireworkIdx, 1);
+      p.discardPile.push(discarded);
+    } else {
+      p.hp = Math.max(0, p.hp - cdBuff.value);
+    }
+    cdBuff.stacks -= 1;
+  }
+  p.buffs = p.buffs.filter(b => b.buffType !== BuffType.ConditionalDiscard || b.stacks > 0);
+
+  // 火焰伤害（灼烧）：每回合开始时消耗全部灼烧层数，受到等量火焰伤害
+  const fireStacks = getBuffStacks(p, BuffType.FireDamage);
+  if (fireStacks > 0) {
+    p = consumeBuffStacks(p, BuffType.FireDamage, fireStacks);
+    const emptyAttacker: PlayerState = JSON.parse(JSON.stringify(p));
+    emptyAttacker.id = 'burn';
+    emptyAttacker.buffs = [];
+    const result = calculateDamage(fireStacks, emptyAttacker, p, true);
+    p = result.newDefender;
+  }
 
   return p;
 }
@@ -278,10 +318,23 @@ export function processTurnStartBuffs(player: PlayerState): PlayerState {
 export function processTurnEndBuffs(player: PlayerState): PlayerState {
   let p = deepClonePlayer(player);
 
+  // 弩：未使用行动牌时获得1层蓄力（上限3层）
+  if (p.equipment?.weapon?.name === '弩' && !p.actionUsedThisTurn) {
+    const currentCharge = getBuffStacks(p, BuffType.Charge);
+    if (currentCharge < 3) {
+      p = addBuff(p, BuffType.Charge, 1, 1, undefined, 'crossbow_charge');
+    }
+  }
+
+  // 海龟壳：结束出牌时移除1层凋零
+  if (p.equipment?.equip?.name === '海龟壳') {
+    const ws = getBuffStacks(p, BuffType.Wither);
+    if (ws > 0) p = consumeBuffStacks(p, BuffType.Wither, 1);
+  }
+
   // 限时状态持续回合数 -1，强度或时长为0/负时移除
   p.buffs = p.buffs
     .map(buff => {
-      // 深度拷贝避免修改原始引用
       const b = { ...buff };
       if (b.remainingTurns !== undefined) {
         b.remainingTurns -= 1;
@@ -289,11 +342,8 @@ export function processTurnEndBuffs(player: PlayerState): PlayerState {
       return b;
     })
     .filter(b => {
-      // 强度必须为正数
       if (b.value <= 0) return false;
-      // 层数必须为正数
       if (b.stacks <= 0) return false;
-      // 有限时且剩余回合≤0则移除
       if (b.remainingTurns !== undefined && b.remainingTurns <= 0) return false;
       return true;
     });

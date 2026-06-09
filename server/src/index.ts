@@ -18,6 +18,10 @@ import {
   startRoomCleanup,
   getAllRooms,
   adminDeleteRoom,
+  handleGuessWeightAction,
+  handleEnchantDiscardAction,
+  handleDraftPickAction,
+  handleBucketChoiceAction,
 } from './rooms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -235,6 +239,82 @@ io.on('connection', (socket) => {
   // ===== 获取房间列表 =====
   socket.on('get_rooms', (callback) => {
     callback(getAllRooms());
+  });
+
+  // ===== 侦测器：猜测权重 =====
+  socket.on('guess_weight', ({ guess }: { guess: number }, callback) => {
+    const result = handleGuessWeightAction(socket.id, guess);
+    if (result.success && result.gameState) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const player of room.players) {
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  // ===== 附魔台：丢弃牌触发 =====
+  socket.on('enchant_discard', ({ cardId }: { cardId: string }, callback) => {
+    const result = handleEnchantDiscardAction(socket.id, cardId);
+    if (result.success && result.gameState) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const player of room.players) {
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  // ===== 运输矿车：选牌 =====
+  socket.on('draft_pick', ({ cardIndex }: { cardIndex: number }, callback) => {
+    const result = handleDraftPickAction(socket.id, cardIndex);
+    if (result.success && result.gameState) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const player of room.players) {
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  // ===== 水桶：选择封锁类型 =====
+  socket.on('bucket_choice', ({ lockType }: { lockType: 'action' | 'strategy' }, callback) => {
+    const result = handleBucketChoiceAction(socket.id, lockType);
+    if (result.success && result.gameState) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const player of room.players) {
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
   });
 
   // ===== 断线处理 =====

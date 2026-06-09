@@ -90,7 +90,7 @@ export default function PlayerInfo({ player, isOpponent, onUnequip }: Props) {
               <div>
                 <h3 className="text-base font-bold text-text-primary">{detailCard.card.name}</h3>
                 <span className="text-[10px] text-text-secondary">
-                  {SLOT_NAMES[detailCard.slot] || COST_TYPE_NAMES[detailCard.card.costType as any] || '其他'}
+                  {SLOT_NAMES[detailCard.slot] || COST_TYPE_NAMES[detailCard.card.costType] || '其他'}
                 </span>
               </div>
             </div>

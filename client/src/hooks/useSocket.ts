@@ -119,6 +119,46 @@ export function useSocket() {
     reset();
   }, [reset]);
 
+  // 侦测器：猜测权重
+  const guessWeight = useCallback((guess: number): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('guess_weight', { guess }, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
+  // 附魔台：丢弃牌
+  const enchantDiscard = useCallback((cardId: string): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('enchant_discard', { cardId }, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
+  // 水桶：选择封锁类型
+  const bucketChoice = useCallback((lockType: 'action' | 'strategy'): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('bucket_choice', { lockType }, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
+  // 运输矿车：选牌
+  const draftPick = useCallback((cardIndex: number): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('draft_pick', { cardIndex }, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
   // 初始化事件监听
   useEffect(() => {
     const socket = getSocket();
@@ -155,12 +195,17 @@ export function useSocket() {
     });
 
     socket.on('opponent_left', () => {
-      console.log('[Socket] 对手离开');
-      // TODO: 处理对手离开
+      console.log('[Socket] 对手离开，返回大厅');
+      reset();
+      window.location.reload();
     });
 
     socket.on('error', (error: string) => {
       console.error('[Socket] 错误', error);
+      if (error.includes('房间不存在') || error.includes('未找到房间')) {
+        reset();
+        window.location.reload();
+      }
     });
 
     return () => {
@@ -185,5 +230,9 @@ export function useSocket() {
     discardCard,
     unequipCard,
     leaveRoom,
+    guessWeight,
+    enchantDiscard,
+    draftPick,
+    bucketChoice,
   };
 }

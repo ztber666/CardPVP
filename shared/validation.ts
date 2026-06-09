@@ -51,6 +51,11 @@ export function validatePlayCard(
     return { valid: false, error: '被水桶封锁，本回合无法使用行动牌' };
   }
 
+  // 锦囊封锁检查
+  if (card.costType === CostType.Strategy && currentPlayer.buffs.some(b => b.buffType === BuffType.LockStrategy)) {
+    return { valid: false, error: '被水桶封锁，本回合无法使用锦囊牌' };
+  }
+
   // 消耗类型限制
   switch (card.costType) {
     case CostType.Action:
@@ -59,11 +64,13 @@ export function validatePlayCard(
       }
       break;
 
-    case CostType.Strategy:
-      if (currentPlayer.strategyCountThisTurn >= 3) {
-        return { valid: false, error: '每回合最多出3张锦囊卡' };
+    case CostType.Strategy: {
+      const strategyLimit = 3 + (currentPlayer.strategyLimitBonus || 0);
+      if (currentPlayer.strategyCountThisTurn >= strategyLimit) {
+        return { valid: false, error: `每回合最多出${strategyLimit}张锦囊卡` };
       }
       break;
+    }
 
     // 装备/武器/场地卡：同类型替换无限制
     // 回血/攻击/增益/减益/事件：无特殊限制（但需要消耗行动卡位？）

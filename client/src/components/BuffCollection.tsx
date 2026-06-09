@@ -12,20 +12,19 @@ const BUFF_DESCRIPTIONS: Record<string, string> = {
   [BuffType.Shield]: '附着对象受到物理伤害或火焰伤害时消耗 1 层护盾抵消 1 点伤害。',
   [BuffType.FireResist]: '使附着对象受到的火焰伤害减少 n 点。每层抵消 1 点火焰伤害。',
   [BuffType.Poison]: '附着对象回血后减少 2 点血量（每回合限 2 次）。',
-  [BuffType.Blight]: '附着对象回血或受到火焰伤害时消耗 1 层，减少 1 点回血或使火焰伤害 +1。',
+  [BuffType.FireVuln]: '附着对象受到火焰伤害时消耗 1 层，使火焰伤害 +1。',
   [BuffType.Charge]: '附着对象对他人造成物理伤害时消耗全部蓄力层数，使本次伤害力量和凋零增加等量层数。',
-  [BuffType.Thorns]: '每回合轮到附着对象时增加 2 点凋零效果。',
-  [BuffType.Wet]: '免疫火焰伤害，移除火焰效果，移除枯萎效果。',
   [BuffType.HealBoost]: '本回合回血时额外多回相当于层数的血量。',
   [BuffType.LockAction]: '附着对象下回合无法使用行动牌。',
+  [BuffType.LockStrategy]: '附着对象下回合无法使用锦囊牌。',
+  [BuffType.FireDamage]: '附着对象每回合开始时受到与层数等量的火焰伤害。',
 };
 
 // Buff 与 BuffType 编号映射
 const BUFF_ICON_MAP: Record<string, number> = {
   strength: 1, weakness: 2, resistance: 3, vuln: 4, heal: 5,
-  wither: 6, shield: 7, fireResist: 8, poison: 9, blight: 10,
-  charge: 11, thorns: 12, wet: 13,
-  healBoost: 14, lockAction: 15,
+  wither: 6, shield: 7, fireResist: 8, poison: 9, fireVuln: 10,
+  charge: 11, healBoost: 12, lockAction: 13, lockStrategy: 14, fireDamage: 0,
 };
 
 // 忽略特殊效果类型（不显示在图鉴中）

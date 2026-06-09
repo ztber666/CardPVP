@@ -24,12 +24,14 @@ export enum BuffType {
   Shield = 'shield',          // buff7 护盾
   FireResist = 'fireResist',  // buff8 抗火
   Poison = 'poison',          // buff9 中毒
-  Blight = 'blight',          // buff10 枯萎
+  FireVuln = 'fireVuln',      // buff10 火焰易伤（受到火焰伤害+n）
   Charge = 'charge',          // buff11 蓄力
-  Thorns = 'thorns',          // buff12 尖刺
-  Wet = 'wet',                // buff13 潮湿
-  HealBoost = 'healBoost',    // buff14 治愈增强
-  LockAction = 'lockAction',  // buff15 行动封锁
+  HealBoost = 'healBoost',    // buff12 治愈增强
+  LockAction = 'lockAction',  // buff13 行动封锁
+  LockStrategy = 'lockStrategy', // buff16 锦囊封锁
+  FireDamage = 'fireDamage',   // buff17 火焰/魔法伤害
+  WitherOnDraw = 'witherOnDraw', // buff18 摸牌凋零（陷阱箱）
+  DamageBoost = 'damageBoost',   // buff19 伤害加成（侦测器）
   RemoveWither = 'removeWither',   // 特殊：移除凋零
   ReduceDuration = 'reduceDuration', // 特殊：减少限时状态回合
   ReduceMaxHp = 'reduceMaxHp',   // 特殊：降低生命上限
@@ -64,6 +66,7 @@ export interface CardDef {
   costType: CostType;
   effects: EffectDef[];
   description: string;
+  weight?: number;         // 牌组权重（侦测器需要）
 }
 
 // ===== 激活的 Buff（运行时数据） =====
@@ -93,6 +96,23 @@ export interface PlayerState {
   actionUsedThisTurn: boolean;
   strategyCountThisTurn: number;
   poisonTriggerCountThisTurn: number;
+  handLimitBonus: number;       // 手牌上限加成（村庄+4）
+  actionLimitBonus: number;     // 行动卡上限加成（冰原+1）
+  strategyLimitBonus: number;   // 锦囊卡上限加成（冰原-1）
+  shieldOnDiscardCount: number;   // 下界荒地：本回合丢弃盾牌触发次数
+  lastPlayedCardName: string;     // 本回合上一张打出的牌名
+  lastPlayedCardEffects: EffectDef[];  // 上一张牌的效果（玻璃板用）
+  lastPlayedCardCostType: CostType;    // 上一张牌的消耗类型
+  pendingGuessCardId: string;     // 侦测器：待猜测的对手牌ID
+  pendingGuessCardWeight: number; // 侦测器：待猜测的权重
+  playedCardTypesThisTurn: CostType[]; // 附魔台：本回合已打出的消耗类型
+  draftCards: CardDef[];          // 运输矿车：待选牌列表
+  draftPlayerPick: number;        // 当前轮到谁选(0=当前玩家, 1=对手)
+  draftPickCount: number;         // 已选次数
+  usedPhysicalHealThisTurn: number; // 滴水石锥：物伤回血已触发次数
+  usedFireHealThisTurn: number;     // 滴水石锥：火焰回血已触发次数
+  jungleHpUpTriggered: boolean;     // 丛林：血量上限+1已触发
+  pendingBucketChoice: string;       // 水桶：待选封锁类型(action/strategy)
 }
 
 // ===== 游戏阶段 =====
@@ -144,12 +164,14 @@ export const BUFF_NAMES: Record<BuffType, string> = {
   [BuffType.Shield]: '护盾',
   [BuffType.FireResist]: '抗火',
   [BuffType.Poison]: '中毒',
-  [BuffType.Blight]: '枯萎',
+  [BuffType.FireVuln]: '火焰易伤',
   [BuffType.Charge]: '蓄力',
-  [BuffType.Thorns]: '尖刺',
-  [BuffType.Wet]: '潮湿',
   [BuffType.HealBoost]: '治愈增强',
   [BuffType.LockAction]: '行动封锁',
+  [BuffType.LockStrategy]: '锦囊封锁',
+  [BuffType.FireDamage]: '火焰伤害',
+  [BuffType.WitherOnDraw]: '摸牌凋零',
+  [BuffType.DamageBoost]: '伤害加成',
   [BuffType.RemoveWither]: '移除凋零',
   [BuffType.ReduceDuration]: '缩减时效',
   [BuffType.ReduceMaxHp]: '生命上限降低',

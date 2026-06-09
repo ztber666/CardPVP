@@ -1,8 +1,8 @@
 import {
   GameState, PlayerState, CardDef, GamePhase,
-  GameLogEntry, PlayCardAction,
+  GameLogEntry, PlayCardAction, BuffType,
 } from './types';
-import { deepClone } from './buffEngine';
+import { deepClone, applyEffectToPlayer } from './buffEngine';
 import { drawCards, shuffleDeck, canPlayCard, applyCard } from './cardEngine';
 import { processTurnStartBuffs, processTurnEndBuffs } from './buffEngine';
 import {
@@ -39,6 +39,23 @@ export function createGame(
     actionUsedThisTurn: false,
     strategyCountThisTurn: 0,
     poisonTriggerCountThisTurn: 0,
+    handLimitBonus: 0,
+    actionLimitBonus: 0,
+    strategyLimitBonus: 0,
+    shieldOnDiscardCount: 0,
+    lastPlayedCardName: '',
+    lastPlayedCardEffects: [],
+    lastPlayedCardCostType: 'action' as any,
+    pendingGuessCardId: '',
+    pendingGuessCardWeight: 0,
+    playedCardTypesThisTurn: [],
+    draftCards: [],
+    draftPlayerPick: 0,
+    draftPickCount: 0,
+    usedPhysicalHealThisTurn: 0,
+    usedFireHealThisTurn: 0,
+    jungleHpUpTriggered: false,
+    pendingBucketChoice: '',
   };
 
   const player2: PlayerState = {
@@ -54,6 +71,23 @@ export function createGame(
     actionUsedThisTurn: false,
     strategyCountThisTurn: 0,
     poisonTriggerCountThisTurn: 0,
+    handLimitBonus: 0,
+    actionLimitBonus: 0,
+    strategyLimitBonus: 0,
+    shieldOnDiscardCount: 0,
+    lastPlayedCardName: '',
+    lastPlayedCardEffects: [],
+    lastPlayedCardCostType: 'action' as any,
+    pendingGuessCardId: '',
+    pendingGuessCardWeight: 0,
+    playedCardTypesThisTurn: [],
+    draftCards: [],
+    draftPlayerPick: 0,
+    draftPickCount: 0,
+    usedPhysicalHealThisTurn: 0,
+    usedFireHealThisTurn: 0,
+    jungleHpUpTriggered: false,
+    pendingBucketChoice: '',
   };
 
   const state: GameState = {
@@ -95,6 +129,36 @@ export function initGame(state: GameState): GameState {
   return s;
 }
 
+// ===== 刷新装备状态（轮到自己回合时重新施加装备效果） =====
+function refreshEquipment(player: PlayerState): PlayerState {
+  let p = deepClone(player) as PlayerState;
+  const slots: (keyof typeof p.equipment)[] = ['equip', 'weapon', 'field'];
+  for (const slot of slots) {
+    const card = p.equipment[slot];
+    if (!card) continue;
+
+    // 先移除该装备之前产生的buff
+    p.buffs = p.buffs.filter(b => b.sourceCardId !== card.id);
+
+    // 重新施加装备卡效果（刷新duration）
+    for (const effect of card.effects) {
+      p = applyEffectToPlayer(p, effect.buffType, effect.value, effect.duration, card.id);
+    }
+  }
+
+  // 重置加成字段
+  p.handLimitBonus = 0;
+  p.actionLimitBonus = 0;
+  p.strategyLimitBonus = 0;
+  p.shieldOnDiscardCount = 0;
+
+  // 检查场地卡加成
+  if (p.equipment.field?.name === '村庄') p.handLimitBonus = 4;
+  if (p.equipment.field?.name === '冰原') { p.actionLimitBonus = 1; p.strategyLimitBonus = -1; }
+
+  return p;
+}
+
 // ===== 开始新回合 =====
 export function startTurn(state: GameState): GameState {
   let s = deepClone(state);
@@ -104,56 +168,33 @@ export function startTurn(state: GameState): GameState {
   let player = s.players[idx];
   let opponent = s.players[1 - idx];
 
-  // 双方各摸3张（皮革鞋子额外+1）
-  const extraDraw = (p: any) => p.equipment?.equip?.name === '皮革鞋子' ? 1 : 0;
+  // 当前玩家摸3张（皮革鞋子额外+1）
+  const extraDraw = (p: PlayerState) => p.equipment?.equip?.name === '皮革鞋子' ? 1 : 0;
   player = drawCards(player, TURN_DRAW_COUNT + extraDraw(player));
-  opponent = drawCards(opponent, TURN_DRAW_COUNT + extraDraw(opponent));
 
   // 重置本回合状态
   player.actionUsedThisTurn = false;
   player.strategyCountThisTurn = 0;
   player.poisonTriggerCountThisTurn = 0;
+  player.lastPlayedCardName = '';
+  player.lastPlayedCardEffects = [];
+  player.lastPlayedCardCostType = 'action' as any;
+  player.shieldOnDiscardCount = 0;
+  player.playedCardTypesThisTurn = [];
+  player.pendingGuessCardId = '';
+  player.pendingGuessCardWeight = 0;
+  player.draftCards = [];
+  player.draftPickCount = 0;
+  player.usedPhysicalHealThisTurn = 0;
+  player.usedFireHealThisTurn = 0;
+  player.jungleHpUpTriggered = false;
 
-  // 处理回合开始 Buff
+  // 处理回合开始 Buff（重置中毒计数、火焰伤害灼烧等）
   player = processTurnStartBuffs(player);
   opponent = processTurnStartBuffs(opponent);
 
-  // 尖刺效果：对手每层尖刺 → 当前玩家获得等量凋零
-  // （规则：尖刺 — 每回合轮到附着对象时增加2点凋零效果）
-  // "轮到附着对象"指尖刺附着者的回合开始时。但这里尖刺贴在对方身上，
-  // 实际应该是"轮到附着对象时" = 被附着者的回合开始时，给自己加凋零
-  // 更准确：尖刺在持有者自己的回合开始时，给对方施加凋零
-  // 但规则写"每回合轮到附着对象时增加2点凋零效果"——
-  // 指持有尖刺buff的人，到他的回合时，给对方加凋零
-  // 所以在这里：当前玩家是 active player，对方有尖刺的话...
-  // 实际上规则是：尖刺buff附着在玩家A身上，当轮到A的回合时，A给对方增加2层凋零
-  // 所以这里应该是检查当前玩家的buff中有没有尖刺
-
-  // 修正理解：尖刺在轮到"附着对象"（即持有者）时生效
-  // 所以每个玩家的回合开始时，检查自己有没有尖刺，有的话给对方加凋零
-  // 但我们的流程是 startTurn 被 active player 调用，所以:
-  const thornBuff = player.buffs.find(b => b.buffType === 'thorns');
-  if (thornBuff) {
-    // 给对方加凋零，值为 thornBuff.stacks * 2（或根据规则）
-    const witherAmount = thornBuff.value * 2; // 规则写"增加2点凋零效果"
-    opponent = {
-      ...opponent,
-      buffs: [
-        ...opponent.buffs,
-        {
-          buffType: 'wither' as any,
-          value: witherAmount,
-          stacks: witherAmount,
-          sourceCardId: thornBuff.sourceCardId,
-        },
-      ],
-    };
-    s.log.push({
-      turnNumber: s.turnNumber,
-      message: `${player.name}的尖刺效果触发，${opponent.name}获得${witherAmount}层凋零`,
-      timestamp: Date.now(),
-    });
-  }
+  // 刷新当前玩家的装备状态
+  player = refreshEquipment(player);
 
   s.players[idx] = player;
   s.players[1 - idx] = opponent;
@@ -249,7 +290,7 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
   const idx = s.players.findIndex(p => p.id === playerId);
   if (idx === -1) return s;
 
-  const player = s.players[idx];
+  let player = s.players[idx];
   const cardIdx = player.hand.findIndex(c => c.id === cardId);
   if (cardIdx === -1) return s;
 
@@ -257,13 +298,24 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
   player.discardPile.push(removed);
 
   // 绑定诅咒：丢弃牌时受伤害
-  const curseBuff = player.buffs.find(b => b.buffType === 'damageOnDiscard');
+  const curseBuff = player.buffs.find(b => b.buffType === BuffType.DamageOnDiscard);
   if (curseBuff) {
     const dmg = curseBuff.value;
     player.hp = Math.max(0, player.hp - dmg);
     s.log.push({
       turnNumber: s.turnNumber,
       message: `${player.name}丢弃牌时受到${dmg}点绑定诅咒伤害`,
+      timestamp: Date.now(),
+    });
+  }
+
+  // 下界荒地：丢弃牌时获得1点护盾（每回合限2次）
+  if (player.equipment?.field?.name === '下界荒地' && player.shieldOnDiscardCount < 2) {
+    player = applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id);
+    player.shieldOnDiscardCount += 1;
+    s.log.push({
+      turnNumber: s.turnNumber,
+      message: `${player.name}丢弃牌时获得1点护盾（下界荒地）`,
       timestamp: Date.now(),
     });
   }
@@ -306,5 +358,147 @@ export function unequipCard(state: GameState, playerId: string, slot: string): G
     timestamp: Date.now(),
   });
 
+  return s;
+}
+
+// ===== 侦测器：处理权重猜测 =====
+export function handleGuessWeight(state: GameState, playerId: string, guessWeight: number): GameState {
+  const s = deepClone(state);
+  const idx = s.players.findIndex(p => p.id === playerId);
+  if (idx === -1) return s;
+
+  let player = s.players[idx];
+  if (!player.pendingGuessCardId) {
+    s.log.push({ turnNumber: s.turnNumber, message: '没有待猜测的卡牌', timestamp: Date.now() });
+    return s;
+  }
+
+  const correct = guessWeight === player.pendingGuessCardWeight;
+  s.log.push({
+    turnNumber: s.turnNumber,
+    message: `猜测权重${guessWeight}，${correct ? '猜中了！' : '猜错了（实际权重' + player.pendingGuessCardWeight + '）'}${correct ? ' 下次物理伤害×1.5' : ''}`,
+    timestamp: Date.now(),
+  });
+
+  if (correct) {
+    player = applyEffectToPlayer(player, BuffType.DamageBoost, 1, undefined, 'detector_boost');
+  }
+
+  player.pendingGuessCardId = '';
+  player.pendingGuessCardWeight = 0;
+  s.players[idx] = player;
+  return s;
+}
+
+// ===== 附魔台：丢弃指定牌并触发效果 =====
+export function handleEnchantDiscard(state: GameState, playerId: string, cardId: string): GameState {
+  let s = deepClone(state);
+  const idx = s.players.findIndex(p => p.id === playerId);
+  if (idx === -1) return s;
+
+  const player = s.players[idx];
+  const cardIdx = player.hand.findIndex(c => c.id === cardId);
+  if (cardIdx === -1) {
+    s.log.push({ turnNumber: s.turnNumber, message: '附魔台：牌不在手牌中', timestamp: Date.now() });
+    return s;
+  }
+
+  // 不从手牌移除（applyCard会做），直接应用效果
+  const cardApplyResult = applyCard(s, playerId, playerId, player.hand[cardIdx]);
+  s = cardApplyResult.gameState;
+
+  // 摸1张牌
+  const updatedPlayer = s.players.find(p => p.id === playerId);
+  if (updatedPlayer) {
+    const drawn = drawCards(updatedPlayer, 1);
+    s.players[s.players.findIndex(p => p.id === playerId)] = drawn;
+  }
+
+  s.log.push({
+    turnNumber: s.turnNumber,
+    message: `附魔台触发了丢弃牌的效果并摸了1张牌`,
+    timestamp: Date.now(),
+  });
+
+  return s;
+}
+
+// ===== 运输矿车：选牌 =====
+export function handleDraftPick(state: GameState, playerId: string, cardIndex: number): GameState {
+  const s = deepClone(state);
+  const idx = s.players.findIndex(p => p.id === playerId);
+  if (idx === -1) return s;
+
+  let player = s.players[idx];
+  const oppIdx = 1 - idx;
+  let opponent = s.players[oppIdx];
+
+  if (!player.draftCards || player.draftCards.length === 0) {
+    s.log.push({ turnNumber: s.turnNumber, message: '没有待选的牌', timestamp: Date.now() });
+    return s;
+  }
+
+  if (cardIndex < 0 || cardIndex >= player.draftCards.length) return s;
+
+  const [picked] = player.draftCards.splice(cardIndex, 1);
+  // 当前玩家轮到他选时，牌归他
+  if (player.draftPlayerPick === 0) {
+    player.hand.push(picked);
+    s.log.push({ turnNumber: s.turnNumber, message: `${player.name}选择了${picked.name}`, timestamp: Date.now() });
+  } else {
+    opponent.hand.push(picked);
+    s.log.push({ turnNumber: s.turnNumber, message: `${opponent.name}获得了${picked.name}`, timestamp: Date.now() });
+  }
+
+  player.draftPickCount += 1;
+
+  // 切换选牌方
+  if (player.draftCards.length > 0) {
+    player.draftPlayerPick = 1 - player.draftPlayerPick;
+  } else {
+    // 选完了
+    player.draftPickCount = 0;
+  }
+
+  s.players[idx] = player;
+  s.players[oppIdx] = opponent;
+  return s;
+}
+
+// ===== 水桶：选择封锁类型 =====
+export function handleBucketChoice(state: GameState, playerId: string, lockType: 'action' | 'strategy'): GameState {
+  const s = deepClone(state);
+  const idx = s.players.findIndex(p => p.id === playerId);
+  if (idx === -1) return s;
+
+  let player = s.players[idx];
+  // 找到对手（被水桶的目标）
+  const oppIdx = 1 - idx;
+  let opponent = s.players[oppIdx];
+
+  if (opponent.pendingBucketChoice !== 'pending') {
+    return s;
+  }
+
+  // 海龟壳：免疫水桶封锁
+  if (opponent.equipment?.equip?.name === '海龟壳') {
+    opponent.pendingBucketChoice = '';
+    s.log.push({ turnNumber: s.turnNumber, message: '水桶被海龟壳免疫！', timestamp: Date.now() });
+    s.players[idx] = player;
+    s.players[oppIdx] = opponent;
+    return s;
+  }
+
+  if (lockType === 'action') {
+    opponent = applyEffectToPlayer(opponent, BuffType.LockAction, 1, 2, 'bucket_lock');
+    s.log.push({ turnNumber: s.turnNumber, message: `水桶封锁了${opponent.name}的行动牌`, timestamp: Date.now() });
+  } else {
+    opponent = applyEffectToPlayer(opponent, BuffType.LockStrategy, 1, 2, 'bucket_lock');
+    s.log.push({ turnNumber: s.turnNumber, message: `水桶封锁了${opponent.name}的锦囊牌`, timestamp: Date.now() });
+  }
+
+  opponent.pendingBucketChoice = '';
+  s.players[idx] = player;
+  s.players[oppIdx] = opponent;
   return s;
 }
