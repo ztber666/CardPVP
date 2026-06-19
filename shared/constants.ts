@@ -52,41 +52,39 @@ export const CARDS: CardTemplate[] = [
   {
     id: 'card_1', name: '苹果', icon: '3,1', weight: 10,
     costType: CostType.Action,
-    effects: [eff(BuffType.Heal, 4)],
-    description: '回4点血',
+    effects: [eff(BuffType.Heal, 3)],
+    description: '回3点血',
   },
   {
     id: 'card_2', name: '烟花', icon: '4,1', weight: 18,
     costType: CostType.Action,
-    effects: [eff(BuffType.Damage, 6)],
-    description: '6点物理伤害',
+    effects: [eff(BuffType.PhysicalDamage, 5)],
+    description: '5点物理伤害',
   },
   {
     id: 'card_3', name: '龙息', icon: '4,1', weight: 3,
     costType: CostType.Action,
     effects: [
-      eff(BuffType.FireDamage, 3, 2),  // 火焰灼烧，持续2回合
-      eff(BuffType.Vulnerability, 1, 2),
+      eff(BuffType.Damage, 3, 2)
     ],
-    description: '3点魔法伤害[*2] / 易伤+1[*2]',
+    description: '3点真伤[*2]',
   },
   {
     id: 'card_4', name: '金苹果', icon: '3,1', weight: 3,
     costType: CostType.Action,
     effects: [
-      eff(BuffType.Resistance, 3, 2),
-      eff(BuffType.Heal, 2, 2),  // 每回合回2血，持续2回合
+      eff(BuffType.Heal, 2, 2)  // 每回合回2血，持续2回合
     ],
-    description: '抗性+3层[*2] / 回2点血[*2]',
+    description: '回2点血[*2]',
   },
   {
     id: 'card_5', name: '火把', icon: '5,2', weight: 4,
     costType: CostType.Strategy,
     effects: [
-      eff(BuffType.Strength, 1, 3),
-      eff(BuffType.RemoveWither, 1),
+      eff(BuffType.Strength, 1, 2),
+      eff(BuffType.RemoveWither, 2),
     ],
-    description: '力量+1层[*3] / 移除1层凋零',
+    description: '力量+1层[*2] / 移除2层凋零',
   },
   {
     id: 'card_6', name: '灯笼', icon: '5,2', weight: 4,
@@ -99,7 +97,7 @@ export const CARDS: CardTemplate[] = [
   },
   {
     id: 'card_7', name: '奶桶', icon: '7,1', weight: 2,
-    costType: CostType.Action,
+    costType: CostType.Strategy,
     effects: [eff(BuffType.ReduceDuration, 1)],
     description: '目标当前所有限时型状态持续时间-1回合',
   },
@@ -124,8 +122,8 @@ export const CARDS: CardTemplate[] = [
   {
     id: 'card_10', name: '刷怪笼', icon: '4,1', weight: 3,
     costType: CostType.Action,
-    effects: [eff(BuffType.ConditionalDiscard, 3)],
-    description: '使目标立即丢弃一张<烟花>，否则受到3点物理伤害',
+    effects: [eff(BuffType.ConditionalDiscard, 4)],
+    description: '使目标立即丢弃一张<烟花>，否则受到4点物理伤害',
   },
 
   // ===== 11-20 策略牌 =====
@@ -138,8 +136,8 @@ export const CARDS: CardTemplate[] = [
   {
     id: 'card_12', name: '发光浆果', icon: '5,2', weight: 4,
     costType: CostType.Strategy,
-    effects: [eff(BuffType.HealBoost, 1, 3)],
-    description: '治愈增强+1层[*3]',
+    effects: [eff(BuffType.HealBoost, 1, 2)],
+    description: '治愈增强+1层[*2]',
   },
   {
     id: 'card_13', name: '水桶', icon: '5,6,2', weight: 3,
@@ -152,15 +150,15 @@ export const CARDS: CardTemplate[] = [
     costType: CostType.Strategy,
     effects: [
       eff(BuffType.FireVuln, 2, 2),  // 火焰伤害+1，持续2回合
-      eff(BuffType.Wither, 2, 2),    // 回血少回2点，持续2回合
+      eff(BuffType.Blight, 2, 2),    // 回血少回2点，持续2回合
     ],
     description: '受到的火焰伤害+1[*2] / 回血时少回1点血[*2]',
   },
   {
     id: 'card_15', name: '合金碎片', icon: '5,2', weight: 3,
     costType: CostType.Strategy,
-    effects: [eff(BuffType.Resistance, 6, 1)],
-    description: '下次受到的物理伤害-6',
+    effects: [eff(BuffType.Block, 1)],
+    description: '下次受到的物理伤害-5',
   },
   {
     id: 'card_16', name: '望远镜', icon: '7,2', weight: 3,
@@ -177,18 +175,16 @@ export const CARDS: CardTemplate[] = [
   {
     id: 'card_18', name: '诡异钓竿', icon: '7,2', weight: 3,
     costType: CostType.Strategy,
-    effects: [eff(BuffType.ForceDiscardEquip, 1)],
+    effects: [],  // 效果在弹窗中处理
     description: '选择目标一张装备并使其丢弃',
   },
   {
     id: 'card_19', name: '蛋糕', icon: '3,1', weight: 4,
     costType: CostType.Action,
     effects: [
-      eff(BuffType.IncreaseMaxHp, 2),
-      eff(BuffType.HealAll, 3),
-      eff(BuffType.Heal, 2),
+      eff(BuffType.HealAll, 4)
     ],
-    description: '目标血量上限+2 / 所有人回3点血 / 目标回2点血',
+    description: '所有人回4点血',
   },
   {
     id: 'card_20', name: '潜影盒', icon: '7,2', weight: 3,
@@ -214,13 +210,13 @@ export const CARDS: CardTemplate[] = [
     id: 'card_23', name: '钻石胸甲', icon: '8', weight: 1,
     costType: CostType.Equip,
     effects: [eff(BuffType.Resistance, 1, 1)],
-    description: '抗性+1层[*1] / 目标在护盾持续时间内受伤时移除2层凋零',
+    description: '抗性+1层[*1] / 目标在护盾持续时间内无视凋零',
   },
   {
     id: 'card_24', name: '金护腿', icon: '8', weight: 1,
     costType: CostType.Equip,
     effects: [],
-    description: '回血时超出血量上限的血量转化为护盾 / 最多同时拥有6层护盾',
+    description: '回血时超出血量上限的血量转化为护盾 / 最多同时拥有5层护盾',
   },
   {
     id: 'card_25', name: '皮革鞋子', icon: '8', weight: 1,
@@ -232,7 +228,7 @@ export const CARDS: CardTemplate[] = [
     id: 'card_26', name: '海龟壳', icon: '8', weight: 1,
     costType: CostType.Equip,
     effects: [eff(BuffType.FireResist, 1, 1)],
-    description: '免疫水桶 / 抗火[*1] / 每次结束出牌时移除1点凋零',
+    description: '免疫水桶 / 抗火[*1]',
   },
   {
     id: 'card_27', name: '三叉戟', icon: '9', weight: 1,
@@ -244,19 +240,19 @@ export const CARDS: CardTemplate[] = [
     id: 'card_28', name: '烈焰棒', icon: '9', weight: 1,
     costType: CostType.Weapon,
     effects: [],
-    description: '造成物理伤害时额外造成1次2点火焰伤害',
+    description: '造成物理伤害后丢弃一张手牌可额外造成1次2点火焰伤害',
   },
   {
     id: 'card_29', name: '玻璃板', icon: '7,2', weight: 2,
     costType: CostType.Strategy,
     effects: [],
-    description: '作为上一张打出的牌打出，若为行动牌消耗一次锦囊次数',
+    description: '作为上一张打出的牌打出，若为行动牌额外消耗一次出牌次数',
   },
   {
-    id: 'card_30', name: '弩', icon: '9', weight: 1,
+    id: 'card_30', name: '酿造台', icon: '9', weight: 1,
     costType: CostType.Weapon,
     effects: [],
-    description: '结束出牌时若本回合未使用行动牌，则获得1层蓄力(上限3层)',
+    description: '装备时可将手牌中的苹果转化为烟花，或将烟花转化为苹果',
   },
 
   // ===== 31-41 高级牌 =====
@@ -282,12 +278,12 @@ export const CARDS: CardTemplate[] = [
     id: 'card_34', name: '冰原', icon: '10', weight: 1,
     costType: CostType.Field,
     effects: [],
-    description: '行动牌打出上限+1 / 锦囊牌打出上限-1',
+    description: '回血类和攻击类消耗次数互通（行动上限+1）/ 锦囊上限-1',
   },
   {
     id: 'card_35', name: '陷阱箱', icon: '6,2', weight: 2,
     costType: CostType.Strategy,
-    effects: [eff(BuffType.WitherOnDraw, 1, 2)],  // 摸牌得凋零，持续2回合
+    effects: [eff(BuffType.WitherOnDraw, 1, 1)],  // 摸牌得凋零，持续2回合
     description: '目标下回合每获得1张牌+1层凋零',
   },
   {
@@ -309,16 +305,16 @@ export const CARDS: CardTemplate[] = [
     description: '卡牌上限+4',
   },
   {
-    id: 'card_39', name: '烈焰粉', icon: '4,11', weight: 4,
+    id: 'card_39', name: '烈焰粉', icon: '11', weight: 4,
     costType: CostType.Counter,
-    effects: [],  // 效果在引擎中条件判断
-    description: '若上一张打出的牌是烟花则对目标造成2点火焰伤害',
+    effects: [],
+    description: '造成物理伤害后可丢弃一张手牌来额外造成2点火焰伤害',
   },
   {
     id: 'card_40', name: '滴水石锥', icon: '9', weight: 1,
     costType: CostType.Weapon,
     effects: [],
-    description: '造成物理伤害时若血量≥8则回1点血，造成火焰伤害时回1点血(各限1次/回合)',
+    description: '造成物理伤害时回1点血(各限1次/回合)',
   },
   {
     id: 'card_41', name: '运输矿车', icon: '7,2', weight: 3,

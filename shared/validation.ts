@@ -1,4 +1,5 @@
-import { GameState, PlayerState, CardDef, GamePhase, CostType, BuffType, PlayCardAction } from './types';
+import { GameState, PlayerState, GamePhase, CostType, BuffType, PlayCardAction } from './types';
+import { getCardSubtype } from './cardEngine';
 
 /**
  * 动作合法性校验
@@ -46,38 +47,28 @@ export function validatePlayCard(
     return { valid: false, error: '装备卡只能对自己使用' };
   }
 
-  // 行动封锁检查
-  if (card.costType === CostType.Action && currentPlayer.buffs.some(b => b.buffType === BuffType.LockAction)) {
-    return { valid: false, error: '被水桶封锁，本回合无法使用行动牌' };
+  // 行动封锁/锦囊封锁检查
+  if ((card.costType === CostType.Action || card.costType === CostType.Heal || card.costType === CostType.Attack) && currentPlayer.buffs.some(b => b.buffType === BuffType.LockAction)) {
+    return { valid: false, error: '被水桶封锁，本回合无法使用' };
   }
-
-  // 锦囊封锁检查
   if (card.costType === CostType.Strategy && currentPlayer.buffs.some(b => b.buffType === BuffType.LockStrategy)) {
     return { valid: false, error: '被水桶封锁，本回合无法使用锦囊牌' };
   }
 
-  // 消耗类型限制
-  switch (card.costType) {
-    case CostType.Action:
-      if (currentPlayer.actionUsedThisTurn) {
-        return { valid: false, error: '每回合只能出1张行动卡' };
-      }
-      break;
-
-    case CostType.Strategy: {
-      const strategyLimit = 3 + (currentPlayer.strategyLimitBonus || 0);
-      if (currentPlayer.strategyCountThisTurn >= strategyLimit) {
-        return { valid: false, error: `每回合最多出${strategyLimit}张锦囊卡` };
-      }
-      break;
+  // 所有行动牌（含回血/攻击类）+ 锦囊牌 → 先检查共享池
+  const subtype = getCardSubtype(card);
+  if (card.costType === CostType.Action || card.costType === CostType.Strategy) {
+    const poolLimit = 5 + (currentPlayer.actionLimitBonus || 0);
+    if ((currentPlayer.actionStrategyCountThisTurn || 0) >= poolLimit) {
+      return { valid: false, error: `本回合行动/锦囊牌已达上限(${poolLimit}张)` };
     }
-
-    // 装备/武器/场地卡：同类型替换无限制
-    // 回血/攻击/增益/减益/事件：无特殊限制（但需要消耗行动卡位？）
-    // 根据规则，行动卡和锦囊卡有明确限制，其他类型没有明确说明每回合限制
-
-    default:
-      break;
+  }
+  // 回血类/攻击类：各1张/回合（额外限制）
+  if (subtype === 'heal' && (currentPlayer.healCountThisTurn || 0) >= 1) {
+    return { valid: false, error: '每回合最多出1张回血类卡牌' };
+  }
+  if (subtype === 'attack' && (currentPlayer.attackCountThisTurn || 0) >= 1) {
+    return { valid: false, error: '每回合最多出1张攻击类卡牌' };
   }
 
   return { valid: true };

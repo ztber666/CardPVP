@@ -2,17 +2,37 @@ import {
   GameState, PlayerState, CardDef, CostType, BuffType,
   GamePhase, GameLogEntry, ActiveBuff, COST_TYPE_NAMES,
 } from './types';
-import { deepClone, calculateDamage, calculateHeal, applyEffectToPlayer, getBuffStacks, consumeBuffStacks, processTurnEndBuffs } from './buffEngine';
-import { DEFAULT_HAND_LIMIT } from './constants';
+import { deepClone, applyEffectToPlayer, getBuffStacks, findBuff } from './buffEngine';
+import { CARDS, DEFAULT_HAND_LIMIT } from './constants';
+
+// 服务端通知 handler（由 server/index.ts 设置，通过 globalThis 跨模块共享）
+// target: 'all'=双方都显示 'self'=仅出牌者 'opponent'=仅对手
+function showMessage(msg: string, target: 'all' | 'self' | 'opponent' = 'all') {
+  const h = (globalThis as any).__card_notify_handler;
+  console.log('[Notify] showMessage:', msg, 'target:', target, 'handler:', !!h);
+  if (h) h(msg, target);
+}
 
 /**
  * 卡牌效果引擎 — 处理单张卡牌打出的完整流程
  */
 
+/** 根据 icon 前缀判断卡牌属于回血类(icon3)还是攻击类(icon4)，替代旧行动卡限制 */
+export function getCardSubtype(card: CardDef): 'heal' | 'attack' | null {
+  const parts = card.icon.split(',').map(Number);
+  // 最后一个数字是 CostType，前面的数字是视觉 icon
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (parts[i] === 3) return 'heal';
+    if (parts[i] === 4) return 'attack';
+  }
+  return null;
+}
+
 // ===== 摸牌 =====
 export function drawCards(player: PlayerState, count: number): PlayerState {
   let p = deepClone(player);
   const handLimit = DEFAULT_HAND_LIMIT + (p.handLimitBonus || 0);
+  const equippedCount = [p.equipment.equip, p.equipment.weapon, p.equipment.field].filter(Boolean).length;
   let drawnCount = 0;
   for (let i = 0; i < count; i++) {
     if (p.deck.length === 0) {
@@ -26,9 +46,20 @@ export function drawCards(player: PlayerState, count: number): PlayerState {
         [p.deck[j], p.deck[k]] = [p.deck[k], p.deck[j]];
       }
     }
-    if (p.hand.length >= handLimit) {
-      // 手牌已达上限，新摸的牌立即丢弃
+    if (p.hand.length + equippedCount >= handLimit) {
+      // 手牌已达上限：先加入手牌再丢弃（触发丢弃事件）
       const drawn = p.deck.shift()!;
+      p.hand.push(drawn);
+      // 丢弃事件：绑定诅咒
+      const curseBuff = findBuff(p, BuffType.DamageOnDiscard);
+      if (curseBuff) p.hp = Math.max(0, p.hp - curseBuff.value);
+      // 丢弃事件：下界荒地
+      if (p.equipment?.field?.name === '下界荒地' && (p.shieldOnDiscardCount || 0) < 2) {
+        p = applyEffectToPlayer(p, BuffType.Shield, 1, undefined, p.equipment.field.id);
+        p.shieldOnDiscardCount = (p.shieldOnDiscardCount || 0) + 1;
+      }
+      // 从手牌移除
+      p.hand = p.hand.filter(c => c.id !== drawn.id);
       p.discardPile.push(drawn);
     } else {
       const drawn = p.deck.shift()!;
@@ -68,9 +99,10 @@ export function canPlayCard(player: PlayerState, card: CardDef, targetSelf?: boo
     return { valid: false, reason: '卡牌不在手牌中' };
   }
 
-  // 行动封锁：无法使用行动卡
-  if (card.costType === CostType.Action && player.buffs.some(b => b.buffType === BuffType.LockAction)) {
-    return { valid: false, reason: '被水桶封锁，本回合无法使用行动牌' };
+  // 行动封锁：无法使用行动卡/回血卡/攻击卡
+  const isActionType = card.costType === CostType.Action || card.costType === CostType.Heal || card.costType === CostType.Attack;
+  if (isActionType && player.buffs.some(b => b.buffType === BuffType.LockAction)) {
+    return { valid: false, reason: '被水桶封锁，本回合无法使用' };
   }
 
   // 锦囊封锁：无法使用锦囊卡
@@ -83,21 +115,21 @@ export function canPlayCard(player: PlayerState, card: CardDef, targetSelf?: boo
     return { valid: false, reason: '装备卡只能对自己使用' };
   }
 
-  switch (card.costType) {
-    case CostType.Action:
-      if (player.actionUsedThisTurn) {
-        return { valid: false, reason: '每回合只能出1张行动卡' };
-      }
-      break;
-    case CostType.Strategy: {
-      const strategyLimit = 3 + (player.strategyLimitBonus || 0);
-      if (player.strategyCountThisTurn >= strategyLimit) {
-        return { valid: false, reason: `每回合最多出${strategyLimit}张锦囊卡` };
-      }
-      break;
+  // 所有行动牌（含回血/攻击类）+ 锦囊牌 → 先检查共享池
+  const subtype = getCardSubtype(card);
+  const isPoolCard = card.costType === CostType.Action || card.costType === CostType.Strategy;
+  if (isPoolCard) {
+    const poolLimit = 5 + (player.actionLimitBonus || 0);
+    if ((player.actionStrategyCountThisTurn || 0) >= poolLimit) {
+      return { valid: false, reason: `本回合行动/锦囊牌已达上限(${poolLimit}张)` };
     }
-    default:
-      break;
+  }
+  // 回血类/攻击类：各1张/回合（额外限制）
+  if (subtype === 'heal' && (player.healCountThisTurn || 0) >= 1) {
+    return { valid: false, reason: '每回合最多出1张回血类卡牌' };
+  }
+  if (subtype === 'attack' && (player.attackCountThisTurn || 0) >= 1) {
+    return { valid: false, reason: '每回合最多出1张攻击类卡牌' };
   }
 
   return { valid: true };
@@ -114,6 +146,135 @@ function removeFromHand(player: PlayerState, cardId: string): PlayerState {
 export interface ApplyCardResult {
   gameState: GameState;
   logMessages: string[];
+}
+
+export function heal(target: PlayerState, number: number) {
+  let healAmt = Math.max(0, number);
+  //治愈增强
+  const healBoostStacks = getBuffStacks(target, BuffType.HealBoost);
+  if(healBoostStacks > 0) healAmt += healBoostStacks;
+  //凋零：消耗1层，减少1点回血
+  const witherStacks = getBuffStacks(target, BuffType.Wither);
+  if (witherStacks > 0 && target.equipment?.equip?.name !== "钻石胸甲") {
+    const consumed = Math.min(witherStacks, healAmt);
+    if(consumed > 0) consumeInPlace(target, BuffType.Wither, consumed);
+    healAmt -= consumed;
+  }
+  //枯萎：减少层数等量回血但不消耗层数
+  const blightStacks = getBuffStacks(target, BuffType.Blight);
+  if (blightStacks > 0) {
+    healAmt = Math.max(0, healAmt - blightStacks);
+  }
+  //实际回血
+  const oldHp = target.hp;
+  target.hp = Math.min(target.maxHp, target.hp + healAmt);
+  const overflow = (oldHp + healAmt) - target.maxHp;
+  //金护腿：溢出转护盾
+  if (overflow > 0 && target.equipment?.equip?.name === '金护腿') {
+    const curShield = getBuffStacks(target, BuffType.Shield);
+    const add = Math.min(overflow, 5 - curShield);
+    if (add > 0) consumeInPlace(target, BuffType.Shield, add);
+  }
+  //中毒：回血后扣3HP（每回合限2次）
+  const poisonBuff = findBuff(target, BuffType.Poison);
+  if (poisonBuff && target.poisonTriggerCountThisTurn < 2) {
+    target.hp = Math.max(0, target.hp - 3);
+    target.poisonTriggerCountThisTurn += 1;
+  }
+  //丛林被动
+  if (target.equipment?.field?.name === '丛林' && !target.jungleHpUpTriggered) {
+    const hasW = target.buffs.some(b => b.buffType === BuffType.Wither && b.stacks > 0);
+    if (hasW) { target.maxHp += 1; target.jungleHpUpTriggered = true; }
+  }
+  return healAmt;
+}
+export enum DamageType {
+  Physical,
+  Fire,
+  Real
+}
+/** 原地消耗 buff 层数（修改原对象 buffs 数组，不创建新对象） */
+export function consumeInPlace(player: PlayerState, type: BuffType, amount: number): number {
+  let remaining = amount;
+  for (const b of player.buffs) {
+    if (b.buffType !== type || remaining <= 0) continue;
+    const c = Math.min(remaining, b.stacks);
+    b.stacks -= c; remaining -= c;
+  }
+  player.buffs = player.buffs.filter(b => b.stacks > 0);
+  return amount - remaining;
+}
+
+export function damage(source: PlayerState, target: PlayerState, type: DamageType, base: number): number {
+  let number = Math.max(0, base);
+  if(type === DamageType.Physical) {
+    //力量（所有实例求和）
+    number += getBuffStacks(source, BuffType.Strength);
+    //虚弱（所有实例求和）
+    number -= getBuffStacks(source, BuffType.Weakness);
+    //抗性（所有实例求和）
+    number -= getBuffStacks(target, BuffType.Resistance);
+    //易伤
+    number += getBuffStacks(target, BuffType.Vulnerability);
+    //护盾
+    const shieldStacks = getBuffStacks(target, BuffType.Shield);
+    if (shieldStacks > 0) {
+      const blocked = Math.min(shieldStacks, Math.max(0, number));
+      if (blocked > 0) {
+        consumeInPlace(target, BuffType.Shield, blocked);
+        number -= blocked;
+      }
+    }
+    //格挡：减5点物理伤害，消耗全部层数后状态消失
+    const blockStacks = getBuffStacks(target, BuffType.Block);
+    if (blockStacks > 0 && number > 0) {
+      const reduced = Math.min(5, number);
+      number -= reduced;
+      consumeInPlace(target, BuffType.Block, blockStacks);
+    }
+    //侦测器暴击
+    const dmgBoost = getBuffStacks(source, BuffType.DamageBoost);
+    if (dmgBoost > 0) {
+      number = Math.ceil(number * 1.5);
+      consumeInPlace(source, BuffType.DamageBoost, dmgBoost);
+    }
+    //滴水石锥（物伤回血）
+    if (source.equipment?.weapon?.name === '滴水石锥') heal(source, 1);
+    //烈焰棒：标记触发条件
+    if (source.equipment?.weapon?.name === '烈焰棒') {
+      source.causePhyiscalDamage = true;
+      showMessage('丢弃一张牌可造成两点火焰伤害', "self")
+    }
+    //烈焰粉提示
+    if(source.hand.filter(card => card.name === '烈焰粉').length > 0) {
+      source.causePhyiscalDamage = true;
+      showMessage('打出烈焰粉可额外造成2点火焰伤害', "self");
+    }
+    
+  } else if(type === DamageType.Fire) {
+    //抗火：免疫
+    const fireResist = getBuffStacks(target, BuffType.FireResist);
+    if (fireResist > 0) return 0;
+    //火焰易伤：消耗层数增加伤害
+    const fvStacks = getBuffStacks(target, BuffType.FireVuln);
+    if (fvStacks > 0) {
+      const consumed = Math.min(fvStacks, Math.max(0, number));
+      if (consumed > 0) consumeInPlace(target, BuffType.FireVuln, consumed);
+      number += consumed;
+    }
+  } else if(type === DamageType.Real) {
+    //真实伤害：无视所有buff
+    target.hp = Math.max(0, target.hp - number);
+    return number;
+  }
+
+  //三叉戟：攻击凋零目标额外伤害
+  if (source.equipment?.weapon?.name === '三叉戟') {
+    const hasWither = target.buffs.some(b => b.buffType === BuffType.Wither && b.stacks > 0);
+    if (hasWither) number += 1;
+  }
+  target.hp = Math.max(0, target.hp - number);
+  return number;
 }
 
 export function applyCard(
@@ -144,12 +305,30 @@ export function applyCard(
   p = removeFromHand(p, card.id);
 
   // 更新消耗计数
-  if (card.costType === CostType.Action) p.actionUsedThisTurn = true;
-  if (card.costType === CostType.Strategy) p.strategyCountThisTurn += 1;
+  const subtype = getCardSubtype(card);
+  if (subtype === 'heal') p.healCountThisTurn = (p.healCountThisTurn || 0) + 1;
+  if (subtype === 'attack') p.attackCountThisTurn = (p.attackCountThisTurn || 0) + 1;
+  // 所有行动牌（含回血/攻击类）+ 锦囊牌 → 共享池
+  if (card.costType === CostType.Action || card.costType === CostType.Strategy) {
+    p.actionStrategyCountThisTurn = (p.actionStrategyCountThisTurn || 0) + 1;
+  }
 
   // 记录本回合消耗类型（附魔台用）
   if (!p.playedCardTypesThisTurn.includes(card.costType)) {
     p.playedCardTypesThisTurn.push(card.costType);
+  }
+  // 按 icon 前缀补充记录子类型（附魔台需要，因为 costType 不再区分回血/攻击/增益/减益/事件）
+  const iconNums = card.icon.split(',').map(Number).slice(0, -1);
+  for (const num of iconNums) {
+    const mappedType = num === 3 ? CostType.Heal
+      : num === 4 ? CostType.Attack
+      : num === 5 ? CostType.Buff
+      : num === 6 ? CostType.Debuff
+      : num === 7 ? CostType.Event
+      : null;
+    if (mappedType && !p.playedCardTypesThisTurn.includes(mappedType)) {
+      p.playedCardTypesThisTurn.push(mappedType);
+    }
   }
 
   // 保存当前 lastPlayedCard（即上一张牌）供后续参考
@@ -159,10 +338,14 @@ export function applyCard(
 
   // 更新上一张牌为当前这张（玻璃板本身不覆盖）
   if (card.name !== '玻璃板') {
+    p.lastPlayedCardDef.push(card);
     p.lastPlayedCardName = card.name;
     p.lastPlayedCardEffects = card.effects.map(e => ({ ...e }));
     p.lastPlayedCardCostType = card.costType;
   }
+
+  //处理烈焰粉判断逻辑
+  if(card.name !== '烈焰粉' && p.causePhyiscalDamage) p.causePhyiscalDamage = false;
 
   // 处理装备/武器/场地替换（始终作用在卡牌使用者身上）
   if (card.costType === CostType.Equip ||
@@ -191,67 +374,35 @@ export function applyCard(
         // 持续回血（治愈 buff，每回合回复）
         const target = isSelfTarget ? p : t;
         const modified = applyEffectToPlayer(target, BuffType.Heal, effect.value, effect.duration, card.id);
+        heal(modified, effect.value);
         if (isSelfTarget) p = modified; else t = modified;
         msgs.push(`${cardName}使${targetLabel}获得持续回血${effect.value}点（${effect.duration}回合）`);
-      } else {
-        // 即时回血
+      } else {// 即时回血
         const target = isSelfTarget ? p : t;
-        const result = calculateHeal(effect.value, target);
-        if (isSelfTarget) {
-          p = result.newTarget;
-        } else {
-          t = result.newTarget;
-        }
-        if (result.heal > 0) msgs.push(`${cardName}为${targetLabel}回复了${result.heal}点血量`);
-        if (result.poisonDamage > 0) msgs.push(`中毒触发，${targetLabel}受到${result.poisonDamage}点伤害`);
+        heal(target, effect.value);
       }
 
     } else if (effect.buffType === BuffType.HealAll) {
       // 全体回血（无论目标选择，双方都回血）
-      const r1 = calculateHeal(effect.value, p);
-      p = r1.newTarget;
-      let oppHeal = 0;
-      if (isSelfTarget) {
-        // 自目标时，治疗对手（直接写回state）
-        const oppIdx = state.players[0].id === p.id ? 1 : 0;
-        const r2 = calculateHeal(effect.value, state.players[oppIdx]);
-        state.players[oppIdx] = r2.newTarget;
-        oppHeal = r2.heal;
-      } else {
-        const r2 = calculateHeal(effect.value, t);
-        t = r2.newTarget;
-        oppHeal = r2.heal;
-      }
-      msgs.push(`${cardName}为双方回复了${r1.heal + oppHeal}点血量`);
+      heal (p, effect.value);
+      heal (t, effect.value);
+      msgs.push(`${cardName}为双方回复了${effect.value}点血量`);
 
+    } else if (effect.buffType === BuffType.PhysicalDamage) {
+      //物理伤害
+      const target = isSelfTarget ? p : t;
+      damage(p, target, DamageType.Physical, effect.value);
     } else if (effect.buffType === BuffType.Damage) {
-      // 物理伤害（经过完整伤害计算：力量/虚弱/抗性/易伤/护盾等）
+      // 真伤/魔法伤害
       const target = isSelfTarget ? p : t;
-      let dmgVal = effect.value;
-      // 侦测器：伤害加成
-      const boost = getBuffStacks(p, BuffType.DamageBoost);
-      if (boost > 0 && !isSelfTarget) {
-        dmgVal = Math.ceil(dmgVal * 1.5);
-        p = consumeBuffStacks(p, BuffType.DamageBoost, boost);
-        msgs.push(`伤害加成×1.5（${effect.value}→${dmgVal}）`);
-      }
-      const dmgResult = calculateDamage(dmgVal, isSelfTarget ? target : p, target, false);
-      if (isSelfTarget) {
-        p = dmgResult.newDefender;
+      if (effect.duration && effect.duration > 0) {
+        // 持续真伤（治愈 buff，每回合回复）
+        const modified = applyEffectToPlayer(target, BuffType.Damage, effect.value, effect.duration, card.id);
+        if (isSelfTarget) p = modified; else t = modified;
+        msgs.push(`${cardName}使${targetLabel}获得龙息${effect.value}点（${effect.duration}回合）`);
       } else {
-        p = dmgResult.newAttacker;
-        t = dmgResult.newDefender;
+        damage(p, target, DamageType.Real, effect.value);
       }
-      if (dmgResult.damage > 0) msgs.push(`${cardName}对${targetLabel}造成${dmgResult.damage}点物理伤害`);
-      else msgs.push(`${cardName}的伤害被完全抵挡`);
-
-    } else if (effect.buffType === BuffType.FireDamage) {
-      // 火焰/魔法伤害 - 施加灼烧 DoT（每回合受到火焰伤害）
-      const target = isSelfTarget ? p : t;
-      const modified = applyEffectToPlayer(target, BuffType.FireDamage, effect.value, effect.duration, card.id);
-      if (isSelfTarget) p = modified; else t = modified;
-      msgs.push(`${cardName}使${targetLabel}附着${effect.value}层火焰灼烧${effect.duration ? '（' + effect.duration + '回合）' : ''}`);
-
     } else if (effect.buffType === BuffType.RemoveWither) {
       // 移除凋零
       const target = isSelfTarget ? p : t;
@@ -274,7 +425,8 @@ export function applyCard(
         .map(buff => {
           if (buff.remainingTurns === undefined) return buff;
           return { ...buff, remainingTurns: Math.max(0, buff.remainingTurns - 1) };
-        });
+        })
+        .filter(b => b.remainingTurns === undefined || b.remainingTurns > 0);
       msgs.push(`${cardName}使${targetLabel}所有限时状态剩余回合-1`);
       if (isSelfTarget) p = target; else t = target;
 
@@ -301,12 +453,14 @@ export function applyCard(
       if (fireworkIdx !== -1) {
         const [discarded] = target.hand.splice(fireworkIdx, 1);
         target.discardPile.push(discarded);
+                if (isSelfTarget) p = target; else t = target;
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
       } else {
-        target.hp = Math.max(0, target.hp - effect.value);
-        msgs.push(`${cardName}对${targetLabel}造成${effect.value}点伤害（未丢弃<烟花>）`);
+        const modified = applyEffectToPlayer(target, BuffType.Horde, 1, 2, card.id);
+        damage(p, p, DamageType.Physical, 4);
+        if (isSelfTarget) p = modified; else t = modified;
+        msgs.push(`${cardName}给予${targetLabel} 2回合尸潮（未丢弃<烟花>）`);
       }
-      if (isSelfTarget) p = target; else t = target;
 
     } else if (effect.buffType === BuffType.DrawCard) {
       // 摸牌
@@ -375,10 +529,9 @@ export function applyCard(
       const target = isSelfTarget ? p : t;
       // 统计不同的buff类型数量（排除特殊类型）
       const buffTypes = new Set(target.buffs.map(b => b.buffType));
-      const healAmount = buffTypes.size * effect.value;
-      if (healAmount > 0) {
-        target.hp = Math.min(target.maxHp, target.hp + healAmount);
-        msgs.push(`${cardName}为${targetLabel}回复了${healAmount}点血量（${buffTypes.size}种状态）`);
+      if (buffTypes.size > 0) {
+        heal(target, buffTypes.size);
+        msgs.push(`${cardName}为${targetLabel}回复了${buffTypes.size}点血量（${buffTypes.size}种状态）`);
       } else {
         msgs.push(`${cardName}没有检测到任何状态，未回血`);
       }
@@ -398,7 +551,6 @@ export function applyCard(
   }
 
   // ===== 特殊卡牌处理 =====
-  const effectTargetLabel = isSelfTarget ? '自己' : '对手';
 
   // 水桶：设置待选封锁类型
   if (card.name === '水桶') {
@@ -408,57 +560,36 @@ export function applyCard(
     msgs.push('水桶：请选择封锁行动牌还是锦囊牌');
   }
 
-  // 刷怪笼：再附加一个持续2回合的检查buff
-  if (card.name === '刷怪笼') {
+  // 诡异钓竿：设置待选装备
+  if (card.name === '诡异钓竿') {
     const target = isSelfTarget ? p : t;
-    const buffed = applyEffectToPlayer(target, BuffType.ConditionalDiscard, 3, 2, card.id);
-    if (isSelfTarget) p = buffed; else t = buffed;
-    msgs.push('刷怪笼效果将持续2回合');
+    target.pendingEquipChoice = 'pending';
+    if (isSelfTarget) p = target; else t = target;
+    msgs.push('诡异钓竿：请选择要丢弃的装备');
   }
 
   // 玻璃板：复制上一张牌的效果
   if (card.name === '玻璃板') {
-    if (prevCardEffects.length > 0) {
-      const copiedEffects = prevCardEffects.map(e => ({ ...e }));
-      msgs.push(`玻璃板复制了「${prevCardName}」的效果`);
-      for (const effect of copiedEffects) {
-        const target = isSelfTarget ? p : t;
-        if (effect.buffType === BuffType.Heal) {
-          const result = calculateHeal(effect.value, target);
-          if (isSelfTarget) p = result.newTarget; else t = result.newTarget;
-          if (result.heal > 0) msgs.push(`复制回血${result.heal}点`);
-        } else if (effect.buffType === BuffType.Damage) {
-          const dTarget = isSelfTarget ? p : t;
-          dTarget.hp = Math.max(0, dTarget.hp - effect.value);
-          msgs.push(`复制造成${effect.value}点伤害`);
-          if (isSelfTarget) p = dTarget; else t = dTarget;
-        } else {
-          const modified = applyEffectToPlayer(target, effect.buffType, effect.value, effect.duration, card.id);
-          if (isSelfTarget) p = modified; else t = modified;
-        }
-      }
-      // 复制行动牌时额外消耗锦囊次数
-      if (prevCardCostType === CostType.Action) {
-        p.strategyCountThisTurn += 1;
-        msgs.push('（玻璃板复制行动牌，额外消耗一次锦囊次数）');
+    if (p.lastPlayedCardDef.length > 0) {
+      const lastCard = p.lastPlayedCardDef[p.lastPlayedCardDef.length - 1];
+      const newState = deepClone(gameState);
+      newState.players[0] = p;
+      newState.players[1] = t;
+      const result = applyCard(newState, playerId, targetId, lastCard);
+      const pIdx = result.gameState.players.findIndex(pl => pl.id === playerId);
+      p = result.gameState.players[pIdx];
+      t = result.gameState.players[1 - pIdx];
+      msgs.push(`玻璃板复制了「${lastCard.name}」的效果`);
+      result.logMessages.forEach(msg => msgs.push(msg));
+      if (lastCard.costType === CostType.Action) {
+        p.actionStrategyCountThisTurn = (p.actionStrategyCountThisTurn || 0) + 1;
+        msgs.push('（玻璃板复制行动牌，额外消耗一次行动/锦囊次数）');
       }
     } else {
       msgs.push('玻璃板没有可复制的牌');
     }
   }
 
-  // 烈焰粉：上一张牌是烟花则造成2点火焰伤害
-  if (card.name === '烈焰粉') {
-    if (prevCardName === '烟花') {
-      const target = isSelfTarget ? p : t;
-      const fireDmg = calculateDamage(2, p, target, true);
-      if (isSelfTarget) p = fireDmg.newDefender;
-      else { p = fireDmg.newAttacker; t = fireDmg.newDefender; }
-      if (fireDmg.damage > 0) msgs.push(`烈焰粉对${effectTargetLabel}造成${fireDmg.damage}点火焰伤害`);
-    } else {
-      msgs.push('烈焰粉无效：上一张牌不是烟花');
-    }
-  }
 
   // 侦测器：展示一张随机对手手牌，记录待猜权重
   if (card.name === '侦测器') {
@@ -470,6 +601,7 @@ export function applyCard(
       // 将待猜信息存到玩家状态中
       p.pendingGuessCardId = revealedCard.id;
       p.pendingGuessCardWeight = w;
+      p.pendingGuessCardName = revealedCard.name;
     } else {
       msgs.push('侦测器：目标手牌为空');
     }
@@ -477,15 +609,14 @@ export function applyCard(
 
   // 附魔台：检查本回合已打出的类型
   if (card.name === '附魔台') {
-    const checkTypes = [CostType.Heal, CostType.Attack, CostType.Buff, CostType.Debuff];
+    const checkTypes = [CostType.Heal, CostType.Attack, CostType.Buff, CostType.Debuff, CostType.Event];
     const played = p.playedCardTypesThisTurn || [];
     const matchedTypes = checkTypes.filter(ct => played.includes(ct));
-    if (matchedTypes.length >= 3) {
-      const missingType = checkTypes.find(ct => !played.includes(ct));
-      msgs.push(`附魔台触发！已打出${matchedTypes.length}种类型，请丢弃一张${missingType ? (COST_TYPE_NAMES[missingType] || missingType) : ''}牌`);
-      // 附魔台效果在 socket 事件中继续处理
+    if (matchedTypes.length >= 4) {
+      p.canEnchantDiscard = true;
+      msgs.push(`附魔台触发！丢弃一张牌触发其效果并摸2张`);
     } else {
-      msgs.push(`附魔台未触发：仅打出${matchedTypes.length}种类型（需3种）`);
+      msgs.push(`附魔台未触发：仅打出${matchedTypes.length}种类型（需4种）`);
     }
   }
 
@@ -502,49 +633,10 @@ export function applyCard(
     }
   }
 
-  // ===== 武器被动效果处理 =====
-  // 烈焰棒：造成物理伤害时额外造成2点火焰伤害
-  if (p.equipment?.weapon?.name === '烈焰棒') {
-    const dealtPhysicalDamage = card.effects.some(e => e.buffType === BuffType.Damage || e.buffType === BuffType.FireDamage);
-    if (dealtPhysicalDamage) {
-      const target = isSelfTarget ? p : t;
-      const fireDmg = calculateDamage(2, p, target, true);
-      if (fireDmg.damage > 0) {
-        if (isSelfTarget) p = fireDmg.newDefender;
-        else { p = fireDmg.newAttacker; t = fireDmg.newDefender; }
-        msgs.push(`烈焰棒额外造成${fireDmg.damage}点火焰伤害`);
-      }
-    }
-  }
-
-  // 三叉戟：攻击凋零目标时额外1点伤害
-  if (p.equipment?.weapon?.name === '三叉戟' && !isSelfTarget) {
-    const hasWither = t.buffs.some(b => b.buffType === BuffType.Wither && b.stacks > 0);
-    if (hasWither) {
-      const hasDamageEffect = card.effects.some(e => e.buffType === BuffType.Damage || e.buffType === BuffType.FireDamage);
-      if (hasDamageEffect) {
-        t.hp = Math.max(0, t.hp - 1);
-        msgs.push(`三叉戟对凋零目标造成额外1点伤害`);
-      }
-    }
-  }
-
-  // 滴水石锥：物伤时血量≥8回1血 / 火焰伤害时回1血（各限1次/回合）
-  if (p.equipment?.weapon?.name === '滴水石锥') {
-    const dealtDamage = card.effects.some(e => e.buffType === BuffType.Damage);
-    const dealtFire = card.effects.some(e => e.buffType === BuffType.FireDamage);
-    if (dealtDamage && p.hp >= 8 && (p.usedPhysicalHealThisTurn || 0) < 1) {
-      const healResult = calculateHeal(1, p);
-      p = healResult.newTarget;
-      p.usedPhysicalHealThisTurn = (p.usedPhysicalHealThisTurn || 0) + 1;
-      msgs.push(`滴水石锥：物伤时回1点血`);
-    }
-    if (dealtFire && (p.usedFireHealThisTurn || 0) < 1) {
-      const healResult = calculateHeal(1, p);
-      p = healResult.newTarget;
-      p.usedFireHealThisTurn = (p.usedFireHealThisTurn || 0) + 1;
-      msgs.push(`滴水石锥：火焰伤害时回1点血`);
-    }
+  // 烈焰粉：上一张牌造成物理伤害后打出额外造成火焰伤害
+  if (card.name === '烈焰粉' && p.causePhyiscalDamage) {
+    p.causePhyiscalDamage = false;
+    damage(p, t, DamageType.Fire, 2);
   }
 
   // ===== 写入状态 =====

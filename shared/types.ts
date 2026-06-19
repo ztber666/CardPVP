@@ -25,11 +25,10 @@ export enum BuffType {
   FireResist = 'fireResist',  // buff8 抗火
   Poison = 'poison',          // buff9 中毒
   FireVuln = 'fireVuln',      // buff10 火焰易伤（受到火焰伤害+n）
-  Charge = 'charge',          // buff11 蓄力
+  //Charge = 'charge',          // buff11 蓄力
   HealBoost = 'healBoost',    // buff12 治愈增强
   LockAction = 'lockAction',  // buff13 行动封锁
   LockStrategy = 'lockStrategy', // buff16 锦囊封锁
-  FireDamage = 'fireDamage',   // buff17 火焰/魔法伤害
   WitherOnDraw = 'witherOnDraw', // buff18 摸牌凋零（陷阱箱）
   DamageBoost = 'damageBoost',   // buff19 伤害加成（侦测器）
   RemoveWither = 'removeWither',   // 特殊：移除凋零
@@ -37,7 +36,8 @@ export enum BuffType {
   ReduceMaxHp = 'reduceMaxHp',   // 特殊：降低生命上限
   IncreaseMaxHp = 'increaseMaxHp', // 特殊：提升生命上限
   ConditionalDiscard = 'conditionalDiscard', // 特殊：条件丢弃
-  Damage = 'damage',             // 直接伤害（不受力量/虚弱等影响）
+  PhysicalDamage = 'phydamage',  // 物理伤害
+  Damage = 'damage',             // 真伤
   DrawCard = 'drawCard',         // 摸牌
   StealCard = 'stealCard',       // 抽取目标手牌
   RevealHand = 'revealHand',     // 展示目标手牌
@@ -45,6 +45,9 @@ export enum BuffType {
   DamageOnDiscard = 'damageOnDiscard',     // 丢弃时受伤害
   HealPerBuff = 'healPerBuff',   // 每存在一种状态回1点血
   HealAll = 'healAll',           // 所有人回血
+  Horde = 'horde',               // 尸潮
+  Blight = 'blight',             // 枯萎
+  Block = 'block',               // 格挡
 }
 
 // ===== 效果目标 =====
@@ -93,26 +96,33 @@ export interface PlayerState {
     weapon?: CardDef;
     field?: CardDef;
   };
-  actionUsedThisTurn: boolean;
-  strategyCountThisTurn: number;
+  healCountThisTurn: number;     // 回血类(icon3)消耗计数
+  attackCountThisTurn: number;   // 攻击类(icon4)消耗计数
+  actionStrategyCountThisTurn: number; // 行动+锦囊共享消耗计数
   poisonTriggerCountThisTurn: number;
   handLimitBonus: number;       // 手牌上限加成（村庄+4）
-  actionLimitBonus: number;     // 行动卡上限加成（冰原+1）
-  strategyLimitBonus: number;   // 锦囊卡上限加成（冰原-1）
+  actionLimitBonus: number;     // 行动上限加成（冰原+1）
   shieldOnDiscardCount: number;   // 下界荒地：本回合丢弃盾牌触发次数
+  lastPlayedCardDef: CardDef[];
   lastPlayedCardName: string;     // 本回合上一张打出的牌名
   lastPlayedCardEffects: EffectDef[];  // 上一张牌的效果（玻璃板用）
   lastPlayedCardCostType: CostType;    // 上一张牌的消耗类型
+  causePhyiscalDamage: boolean;   // 上一张牌是否造成物理伤害
+  canEnchantDiscard: boolean;
   pendingGuessCardId: string;     // 侦测器：待猜测的对手牌ID
   pendingGuessCardWeight: number; // 侦测器：待猜测的权重
+  pendingGuessCardName?: string;  // 侦测器：待猜测的卡牌名称
   playedCardTypesThisTurn: CostType[]; // 附魔台：本回合已打出的消耗类型
   draftCards: CardDef[];          // 运输矿车：待选牌列表
   draftPlayerPick: number;        // 当前轮到谁选(0=当前玩家, 1=对手)
   draftPickCount: number;         // 已选次数
+  draftPickedBy: Record<number, string>; // 运输矿车：已选标记 {卡牌索引→玩家名}
   usedPhysicalHealThisTurn: number; // 滴水石锥：物伤回血已触发次数
   usedFireHealThisTurn: number;     // 滴水石锥：火焰回血已触发次数
   jungleHpUpTriggered: boolean;     // 丛林：血量上限+1已触发
   pendingBucketChoice: string;       // 水桶：待选封锁类型(action/strategy)
+  pendingEquipChoice: string;        // 诡异钓竿：待选装备槽位
+  durationTickCounter: number;       // 持续时间节拍器：每两次结束出牌减1回合（0/1交替）
 }
 
 // ===== 游戏阶段 =====
@@ -165,11 +175,9 @@ export const BUFF_NAMES: Record<BuffType, string> = {
   [BuffType.FireResist]: '抗火',
   [BuffType.Poison]: '中毒',
   [BuffType.FireVuln]: '火焰易伤',
-  [BuffType.Charge]: '蓄力',
   [BuffType.HealBoost]: '治愈增强',
   [BuffType.LockAction]: '行动封锁',
   [BuffType.LockStrategy]: '锦囊封锁',
-  [BuffType.FireDamage]: '火焰伤害',
   [BuffType.WitherOnDraw]: '摸牌凋零',
   [BuffType.DamageBoost]: '伤害加成',
   [BuffType.RemoveWither]: '移除凋零',
@@ -177,7 +185,8 @@ export const BUFF_NAMES: Record<BuffType, string> = {
   [BuffType.ReduceMaxHp]: '生命上限降低',
   [BuffType.IncreaseMaxHp]: '生命上限提升',
   [BuffType.ConditionalDiscard]: '条件丢弃',
-  [BuffType.Damage]: '伤害',
+  [BuffType.PhysicalDamage]: '物理伤害',
+  [BuffType.Damage]: '真实伤害',
   [BuffType.DrawCard]: '摸牌',
   [BuffType.StealCard]: '抽牌',
   [BuffType.RevealHand]: '展示手牌',
@@ -185,6 +194,9 @@ export const BUFF_NAMES: Record<BuffType, string> = {
   [BuffType.DamageOnDiscard]: '丢弃伤害',
   [BuffType.HealPerBuff]: '状态回血',
   [BuffType.HealAll]: '全体回血',
+  [BuffType.Horde]: '尸潮',
+  [BuffType.Blight]: '枯萎',
+  [BuffType.Block]: '格挡',
 };
 
 // ===== 消耗类型名称 =====

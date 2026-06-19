@@ -2,209 +2,157 @@ import {
   GameState, PlayerState, CardDef, GamePhase,
   GameLogEntry, PlayCardAction, BuffType,
 } from './types';
-import { deepClone, applyEffectToPlayer } from './buffEngine';
-import { drawCards, shuffleDeck, canPlayCard, applyCard } from './cardEngine';
+import { deepClone, applyEffectToPlayer, getBuffStacks } from './buffEngine';
+import { drawCards, shuffleDeck, canPlayCard, applyCard, damage, DamageType } from './cardEngine';
 import { processTurnStartBuffs, processTurnEndBuffs } from './buffEngine';
 import {
   DEFAULT_MAX_HP, INITIAL_DRAW_COUNT, TURN_DRAW_COUNT,
-  buildTestDeck,
+  buildTestDeck, CARDS,
 } from './constants';
 
-/**
- * 游戏流程引擎 — 核心游戏循环
- */
-
-// ===== 创建新游戏 =====
+// ===== 游戏创建 =====
 export function createGame(
   roomId: string,
-  player1Id: string,
-  player1Name: string,
-  player2Id: string,
-  player2Name: string,
+  p1Id: string, p1Name: string,
+  p2Id: string, p2Name: string
 ): GameState {
-  const p1Deck = buildTestDeck();
-  const p2Deck = buildTestDeck();
-
-  // 浅拷贝让每个玩家有自己的卡牌对象
-  const player1: PlayerState = {
-    id: player1Id,
-    name: player1Name,
-    hp: DEFAULT_MAX_HP,
-    maxHp: DEFAULT_MAX_HP,
-    deck: JSON.parse(JSON.stringify(p1Deck)),
-    hand: [],
-    discardPile: [],
-    buffs: [],
-    equipment: {},
-    actionUsedThisTurn: false,
-    strategyCountThisTurn: 0,
-    poisonTriggerCountThisTurn: 0,
-    handLimitBonus: 0,
-    actionLimitBonus: 0,
-    strategyLimitBonus: 0,
-    shieldOnDiscardCount: 0,
-    lastPlayedCardName: '',
-    lastPlayedCardEffects: [],
-    lastPlayedCardCostType: 'action' as any,
-    pendingGuessCardId: '',
-    pendingGuessCardWeight: 0,
-    playedCardTypesThisTurn: [],
-    draftCards: [],
-    draftPlayerPick: 0,
-    draftPickCount: 0,
-    usedPhysicalHealThisTurn: 0,
-    usedFireHealThisTurn: 0,
-    jungleHpUpTriggered: false,
-    pendingBucketChoice: '',
-  };
-
-  const player2: PlayerState = {
-    id: player2Id,
-    name: player2Name,
-    hp: DEFAULT_MAX_HP,
-    maxHp: DEFAULT_MAX_HP,
-    deck: JSON.parse(JSON.stringify(p2Deck)),
-    hand: [],
-    discardPile: [],
-    buffs: [],
-    equipment: {},
-    actionUsedThisTurn: false,
-    strategyCountThisTurn: 0,
-    poisonTriggerCountThisTurn: 0,
-    handLimitBonus: 0,
-    actionLimitBonus: 0,
-    strategyLimitBonus: 0,
-    shieldOnDiscardCount: 0,
-    lastPlayedCardName: '',
-    lastPlayedCardEffects: [],
-    lastPlayedCardCostType: 'action' as any,
-    pendingGuessCardId: '',
-    pendingGuessCardWeight: 0,
-    playedCardTypesThisTurn: [],
-    draftCards: [],
-    draftPlayerPick: 0,
-    draftPickCount: 0,
-    usedPhysicalHealThisTurn: 0,
-    usedFireHealThisTurn: 0,
-    jungleHpUpTriggered: false,
-    pendingBucketChoice: '',
-  };
-
-  const state: GameState = {
+  return {
     roomId,
-    players: [player1, player2],
+    players: [
+      {
+        id: p1Id, name: p1Name,
+        hp: DEFAULT_MAX_HP, maxHp: DEFAULT_MAX_HP,
+        deck: shuffleDeck({ deck: buildTestDeck(), hand: [], discardPile: [], buffs: [], equipment: {} } as any).deck,
+        hand: [], discardPile: [], buffs: [],
+        equipment: {},
+        healCountThisTurn: 0,
+        attackCountThisTurn: 0,
+        actionStrategyCountThisTurn: 0,
+        poisonTriggerCountThisTurn: 0,
+        handLimitBonus: 0,
+        actionLimitBonus: 0,
+        shieldOnDiscardCount: 0,
+        lastPlayedCardDef: [],
+        lastPlayedCardName: '',
+        lastPlayedCardEffects: [],
+        lastPlayedCardCostType: 'action' as any,
+        causePhyiscalDamage: false,
+        canEnchantDiscard: false,
+        pendingGuessCardId: '',
+        pendingGuessCardWeight: 0,
+    pendingGuessCardName: '',
+        playedCardTypesThisTurn: [],
+        draftCards: [],
+        draftPlayerPick: 0,
+        draftPickCount: 0,
+        draftPickedBy: {},
+        usedPhysicalHealThisTurn: 0,
+        usedFireHealThisTurn: 0,
+        jungleHpUpTriggered: false,
+        pendingBucketChoice: '',
+        pendingEquipChoice: '',
+        durationTickCounter: 0,
+      },
+      {
+        id: p2Id, name: p2Name,
+        hp: DEFAULT_MAX_HP, maxHp: DEFAULT_MAX_HP,
+        deck: shuffleDeck({ deck: buildTestDeck(), hand: [], discardPile: [], buffs: [], equipment: {} } as any).deck,
+        hand: [], discardPile: [], buffs: [],
+        equipment: {},
+        healCountThisTurn: 0,
+        attackCountThisTurn: 0,
+        actionStrategyCountThisTurn: 0,
+        poisonTriggerCountThisTurn: 0,
+        handLimitBonus: 0,
+        actionLimitBonus: 0,
+        shieldOnDiscardCount: 0,
+        lastPlayedCardDef: [],
+        lastPlayedCardName: '',
+        lastPlayedCardEffects: [],
+        lastPlayedCardCostType: 'action' as any,
+        causePhyiscalDamage: false,
+        canEnchantDiscard: false,
+        pendingGuessCardId: '',
+        pendingGuessCardWeight: 0,
+        playedCardTypesThisTurn: [],
+        draftCards: [],
+        draftPlayerPick: 0,
+        draftPickCount: 0,
+        draftPickedBy: {},
+        usedPhysicalHealThisTurn: 0,
+        usedFireHealThisTurn: 0,
+        jungleHpUpTriggered: false,
+        pendingBucketChoice: '',
+        pendingEquipChoice: '',
+        durationTickCounter: 0,
+      },
+    ],
     currentTurnIndex: 0,
     turnNumber: 0,
     phase: GamePhase.Playing,
     log: [],
   };
-
-  return state;
 }
 
-// ===== 初始化游戏（洗牌 + 摸牌 + 决定先手） =====
+// ===== 初始化对局（洗牌+摸牌+决定先手） =====
 export function initGame(state: GameState): GameState {
-  let s = deepClone(state);
-
-  // 洗牌
-  for (let i = 0; i < s.players.length; i++) {
-    s.players[i] = shuffleDeck(s.players[i]);
-  }
-
-  // 各摸2张
-  for (let i = 0; i < s.players.length; i++) {
-    s.players[i] = drawCards(s.players[i], INITIAL_DRAW_COUNT);
-  }
+  const s = deepClone(state);
 
   // 随机先手
   s.currentTurnIndex = Math.random() < 0.5 ? 0 : 1;
 
-  // 日志
-  s.log.push({
-    turnNumber: 0,
-    message: `${s.players[s.currentTurnIndex].name}获得先手`,
-    timestamp: Date.now(),
-  });
+  // 摸初始手牌
+  for (let i = 0; i < s.players.length; i++) {
+    s.players[i] = drawCards(s.players[i], INITIAL_DRAW_COUNT);
+  }
 
   return s;
 }
 
-// ===== 刷新装备状态（轮到自己回合时重新施加装备效果） =====
+// ===== 刷新装备效果 =====
 function refreshEquipment(player: PlayerState): PlayerState {
-  let p = deepClone(player) as PlayerState;
-  const slots: (keyof typeof p.equipment)[] = ['equip', 'weapon', 'field'];
-  for (const slot of slots) {
-    const card = p.equipment[slot];
-    if (!card) continue;
-
-    // 先移除该装备之前产生的buff
-    p.buffs = p.buffs.filter(b => b.sourceCardId !== card.id);
-
-    // 重新施加装备卡效果（刷新duration）
-    for (const effect of card.effects) {
-      p = applyEffectToPlayer(p, effect.buffType, effect.value, effect.duration, card.id);
-    }
-  }
+  const p = deepClone(player);
 
   // 重置加成字段
   p.handLimitBonus = 0;
   p.actionLimitBonus = 0;
-  p.strategyLimitBonus = 0;
   p.shieldOnDiscardCount = 0;
 
   // 检查场地卡加成
   if (p.equipment.field?.name === '村庄') p.handLimitBonus = 4;
-  if (p.equipment.field?.name === '冰原') { p.actionLimitBonus = 1; p.strategyLimitBonus = -1; }
+  if (p.equipment.field?.name === '冰原') p.actionLimitBonus = 1;
 
   return p;
 }
 
 // ===== 开始新回合 =====
 export function startTurn(state: GameState): GameState {
-  let s = deepClone(state);
+  const s = deepClone(state);
   s.turnNumber += 1;
+  s.phase = GamePhase.Playing;
 
-  const idx = s.currentTurnIndex;
-  let player = s.players[idx];
-  let opponent = s.players[1 - idx];
+  let player = s.players[s.currentTurnIndex];
 
-  // 当前玩家摸3张（皮革鞋子额外+1）
-  const extraDraw = (p: PlayerState) => p.equipment?.equip?.name === '皮革鞋子' ? 1 : 0;
-  player = drawCards(player, TURN_DRAW_COUNT + extraDraw(player));
-
-  // 重置本回合状态
-  player.actionUsedThisTurn = false;
-  player.strategyCountThisTurn = 0;
-  player.poisonTriggerCountThisTurn = 0;
-  player.lastPlayedCardName = '';
-  player.lastPlayedCardEffects = [];
-  player.lastPlayedCardCostType = 'action' as any;
-  player.shieldOnDiscardCount = 0;
-  player.playedCardTypesThisTurn = [];
-  player.pendingGuessCardId = '';
-  player.pendingGuessCardWeight = 0;
-  player.draftCards = [];
-  player.draftPickCount = 0;
-  player.usedPhysicalHealThisTurn = 0;
-  player.usedFireHealThisTurn = 0;
-  player.jungleHpUpTriggered = false;
-
-  // 处理回合开始 Buff（重置中毒计数、火焰伤害灼烧等）
-  player = processTurnStartBuffs(player);
-  opponent = processTurnStartBuffs(opponent);
-
-  // 刷新当前玩家的装备状态
+  // 刷新装备
   player = refreshEquipment(player);
 
-  s.players[idx] = player;
-  s.players[1 - idx] = opponent;
+  // 重置本回合状态
+  player.healCountThisTurn = 0;
+  player.attackCountThisTurn = 0;
+  player.actionStrategyCountThisTurn = 0;
+  player.poisonTriggerCountThisTurn = 0;
+  player.jungleHpUpTriggered = false;
+  player.shieldOnDiscardCount = 0;
+  player.playedCardTypesThisTurn = [];
 
-  s.log.push({
-    turnNumber: s.turnNumber,
-    message: `=== 第${s.turnNumber}回合 — ${player.name}的回合 ===`,
-    timestamp: Date.now(),
-  });
 
+  // 处理回合开始 Buff
+  player = processTurnStartBuffs(player);
+
+  // 摸牌
+  player = drawCards(player, TURN_DRAW_COUNT);
+
+  s.players[s.currentTurnIndex] = player;
   return s;
 }
 
@@ -213,7 +161,7 @@ export interface PlayCardResult {
   success: boolean;
   gameState: GameState;
   error?: string;
-  messages: string[];
+  messages?: string[];
 }
 
 export function playCard(state: GameState, action: PlayCardAction, playerId: string): PlayCardResult {
@@ -266,45 +214,114 @@ export function endTurn(state: GameState): GameState {
 
   s.log.push({
     turnNumber: s.turnNumber,
-    message: `${s.players[1 - s.currentTurnIndex].name}结束了回合`,
+    message: `回合 ${s.turnNumber} 结束`,
     timestamp: Date.now(),
   });
 
   return s;
 }
 
-// ===== 检查胜负（外部调用用） =====
-export function checkGameOver(state: GameState): { isOver: boolean; winnerId?: string } {
-  for (const p of state.players) {
-    if (p.hp <= 0) {
-      const winner = state.players.find(pl => pl.id !== p.id);
-      return { isOver: true, winnerId: winner?.id };
-    }
-  }
-  return { isOver: false };
-}
-
 // ===== 丢弃手牌 =====
 export function discardFromHand(state: GameState, playerId: string, cardId: string): GameState {
+  let s = deepClone(state);
+  const idx = s.players.findIndex(p => p.id === playerId);
+  if (idx === -1) return s;
+
+  let player = s.players[idx];
+  let target = s.players[1 - idx];
+  const cardIdx = player.hand.findIndex(c => c.id === cardId);
+  if (cardIdx === -1) return s;
+
+  const [card] = player.hand.splice(cardIdx, 1);
+  // 附魔台：丢弃此牌并触发效果
+  if (player.canEnchantDiscard) {
+    player.canEnchantDiscard = false;
+    // 放回手牌，让 handleEnchantDiscard 通过 applyCard 处理
+    player.hand.push(card);
+    s = handleEnchantDiscard(s, player.id, card.id);
+    s.log.push({
+      turnNumber: s.turnNumber,
+      message: `${player.name}丢弃了${card.name}`,
+      timestamp: Date.now(),
+    });
+    return s;
+  }
+
+  player.discardPile.push(card);
+
+  //烈焰棒
+  if(player.equipment?.weapon?.name === '烈焰棒' && player.causePhyiscalDamage) {
+    player.causePhyiscalDamage = false;
+    damage(player, target, DamageType.Fire, 2);
+    s.log.push({
+      turnNumber: s.turnNumber,
+      message: `烈焰棒生效：${target.name}受到2点火焰伤害`,
+      timestamp: Date.now(),
+    });
+  }
+
+  // 绑定诅咒：丢弃牌时受伤害
+  const curseStack = getBuffStacks(player, BuffType.DamageOnDiscard);
+  if (curseStack > 0) {
+    damage(player, player, DamageType.Real, curseStack);
+    s.log.push({
+      turnNumber: s.turnNumber,
+      message: `${player.name}丢弃牌时受到${curseStack}点绑定诅咒伤害`,
+      timestamp: Date.now(),
+    });
+  }
+
+  // 下界荒地：丢弃牌时获得1点护盾（每回合限2次）
+  if (player.equipment?.field?.name === '下界荒地' && player.shieldOnDiscardCount < 2) {
+    player = applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id);
+    player.shieldOnDiscardCount += 1;
+    s.log.push({
+      turnNumber: s.turnNumber,
+      message: `${player.name}丢弃牌时获得1点护盾（下界荒地）`,
+      timestamp: Date.now(),
+    });
+  }
+
+  s.players[idx] = player;
+  s.players[1 - idx] = target;
+
+  s.log.push({
+    turnNumber: s.turnNumber,
+    message: `${player.name}丢弃了${card.name}`,
+    timestamp: Date.now(),
+  });
+
+  return s;
+}
+
+// ===== 获取对手ID =====
+export function getOpponentId(state: GameState, playerId: string): string {
+  return state.players.find(p => p.id !== playerId)?.id || '';
+}
+
+// ===== 卸下装备 =====
+export function unequipCard(state: GameState, playerId: string, slot: string): GameState {
   const s = deepClone(state);
   const idx = s.players.findIndex(p => p.id === playerId);
   if (idx === -1) return s;
 
   let player = s.players[idx];
-  const cardIdx = player.hand.findIndex(c => c.id === cardId);
-  if (cardIdx === -1) return s;
+  const card = player.equipment[slot as keyof typeof player.equipment];
+  if (!card) return s;
 
-  const [removed] = player.hand.splice(cardIdx, 1);
-  player.discardPile.push(removed);
+  delete player.equipment[slot as keyof typeof player.equipment];
+  // 移除该装备产生的buff
+  player.buffs = player.buffs.filter(b => b.sourceCardId !== card.id);
+  // 装备卸下时直接丢弃（进入弃牌堆），触发丢弃事件
+  player.discardPile.push(card);
 
   // 绑定诅咒：丢弃牌时受伤害
-  const curseBuff = player.buffs.find(b => b.buffType === BuffType.DamageOnDiscard);
-  if (curseBuff) {
-    const dmg = curseBuff.value;
-    player.hp = Math.max(0, player.hp - dmg);
+  const curseStack = getBuffStacks(player, BuffType.DamageOnDiscard);
+  if (curseStack > 0) {
+    damage(player, player, DamageType.Real, curseStack);
     s.log.push({
       turnNumber: s.turnNumber,
-      message: `${player.name}丢弃牌时受到${dmg}点绑定诅咒伤害`,
+      message: `${player.name}丢弃牌时受到${curseStack}点绑定诅咒伤害`,
       timestamp: Date.now(),
     });
   }
@@ -324,36 +341,6 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
 
   s.log.push({
     turnNumber: s.turnNumber,
-    message: `${player.name}丢弃了${removed.name}`,
-    timestamp: Date.now(),
-  });
-
-  return s;
-}
-
-// ===== 获取对手ID =====
-export function getOpponentId(state: GameState, playerId: string): string {
-  return state.players.find(p => p.id !== playerId)?.id || '';
-}
-
-// ===== 卸下装备 =====
-export function unequipCard(state: GameState, playerId: string, slot: string): GameState {
-  const s = deepClone(state);
-  const idx = s.players.findIndex(p => p.id === playerId);
-  if (idx === -1) return s;
-
-  const player = s.players[idx];
-  const card = player.equipment[slot as keyof typeof player.equipment];
-  if (!card) return s;
-
-  delete player.equipment[slot as keyof typeof player.equipment];
-  player.hand.push(card);
-  // 移除该装备产生的buff
-  player.buffs = player.buffs.filter(b => b.sourceCardId !== card.id);
-  s.players[idx] = player;
-
-  s.log.push({
-    turnNumber: s.turnNumber,
     message: `${player.name}卸下了${card.name}`,
     timestamp: Date.now(),
   });
@@ -367,138 +354,208 @@ export function handleGuessWeight(state: GameState, playerId: string, guessWeigh
   const idx = s.players.findIndex(p => p.id === playerId);
   if (idx === -1) return s;
 
-  let player = s.players[idx];
-  if (!player.pendingGuessCardId) {
-    s.log.push({ turnNumber: s.turnNumber, message: '没有待猜测的卡牌', timestamp: Date.now() });
-    return s;
-  }
+  const player = s.players[idx];
+  if (!player.pendingGuessCardId) return s;
 
-  const correct = guessWeight === player.pendingGuessCardWeight;
-  s.log.push({
-    turnNumber: s.turnNumber,
-    message: `猜测权重${guessWeight}，${correct ? '猜中了！' : '猜错了（实际权重' + player.pendingGuessCardWeight + '）'}${correct ? ' 下次物理伤害×1.5' : ''}`,
-    timestamp: Date.now(),
-  });
+  const correct = player.pendingGuessCardWeight === guessWeight;
+  const msg = correct
+    ? `${player.name}猜中了权重(${guessWeight})！下次物理伤害×1.5`
+    : `${player.name}猜错了权重(${guessWeight})，正确答案是${player.pendingGuessCardWeight}`;
 
   if (correct) {
-    player = applyEffectToPlayer(player, BuffType.DamageBoost, 1, undefined, 'detector_boost');
+    player.buffs.push({
+      buffType: BuffType.DamageBoost,
+      value: 1,
+      stacks: 1,
+      sourceCardId: 'detector',
+    });
   }
 
   player.pendingGuessCardId = '';
   player.pendingGuessCardWeight = 0;
-  s.players[idx] = player;
-  return s;
-}
-
-// ===== 附魔台：丢弃指定牌并触发效果 =====
-export function handleEnchantDiscard(state: GameState, playerId: string, cardId: string): GameState {
-  let s = deepClone(state);
-  const idx = s.players.findIndex(p => p.id === playerId);
-  if (idx === -1) return s;
-
-  const player = s.players[idx];
-  const cardIdx = player.hand.findIndex(c => c.id === cardId);
-  if (cardIdx === -1) {
-    s.log.push({ turnNumber: s.turnNumber, message: '附魔台：牌不在手牌中', timestamp: Date.now() });
-    return s;
-  }
-
-  // 不从手牌移除（applyCard会做），直接应用效果
-  const cardApplyResult = applyCard(s, playerId, playerId, player.hand[cardIdx]);
-  s = cardApplyResult.gameState;
-
-  // 摸1张牌
-  const updatedPlayer = s.players.find(p => p.id === playerId);
-  if (updatedPlayer) {
-    const drawn = drawCards(updatedPlayer, 1);
-    s.players[s.players.findIndex(p => p.id === playerId)] = drawn;
-  }
 
   s.log.push({
     turnNumber: s.turnNumber,
-    message: `附魔台触发了丢弃牌的效果并摸了1张牌`,
+    message: msg,
     timestamp: Date.now(),
   });
 
   return s;
 }
 
-// ===== 运输矿车：选牌 =====
-export function handleDraftPick(state: GameState, playerId: string, cardIndex: number): GameState {
+// ===== 附魔台：处理丢弃牌并触发 =====
+export function handleEnchantDiscard(state: GameState, playerId: string, cardId: string): GameState {
   const s = deepClone(state);
   const idx = s.players.findIndex(p => p.id === playerId);
   if (idx === -1) return s;
 
-  let player = s.players[idx];
-  const oppIdx = 1 - idx;
-  let opponent = s.players[oppIdx];
-
-  if (!player.draftCards || player.draftCards.length === 0) {
-    s.log.push({ turnNumber: s.turnNumber, message: '没有待选的牌', timestamp: Date.now() });
+  const card = s.players[idx].hand.find(c => c.id === cardId);
+  if (!card) {
+    console.log('[附魔台] 卡牌未找到:', cardId);
     return s;
   }
 
-  if (cardIndex < 0 || cardIndex >= player.draftCards.length) return s;
+  console.log('[附魔台] 开始处理丢弃:', card.name, '玩家:', s.players[idx].name, '对手:', s.players[1 - idx].name);
 
-  const [picked] = player.draftCards.splice(cardIndex, 1);
-  // 当前玩家轮到他选时，牌归他
-  if (player.draftPlayerPick === 0) {
-    player.hand.push(picked);
-    s.log.push({ turnNumber: s.turnNumber, message: `${player.name}选择了${picked.name}`, timestamp: Date.now() });
-  } else {
-    opponent.hand.push(picked);
-    s.log.push({ turnNumber: s.turnNumber, message: `${opponent.name}获得了${picked.name}`, timestamp: Date.now() });
-  }
+  // 保存消耗计数，applyCard 会修改它们
+  const before = {
+    healCount: s.players[idx].healCountThisTurn,
+    attackCount: s.players[idx].attackCountThisTurn,
+    actionStrategyCount: s.players[idx].actionStrategyCountThisTurn,
+    playedTypes: [...s.players[idx].playedCardTypesThisTurn],
+    lastPlayedDef: [...s.players[idx].lastPlayedCardDef],
+    lastPlayedName: s.players[idx].lastPlayedCardName,
+  };
 
-  player.draftPickCount += 1;
+  // 将选中的牌像打出去一样生效（目标为对手）
+  const oppId = s.players[1 - idx].id;
+  console.log('[附魔台] 调用 applyCard, 目标:', oppId);
+  const result = applyCard(s, playerId, oppId, card);
+  console.log('[附魔台] applyCard 返回, messages:', result.logMessages);
+  const gs = result.gameState;
+
+  // 恢复消耗计数（这张牌是被丢弃触发，不是正常打出）
+  const pIdx = gs.players.findIndex(p => p.id === playerId);
+  gs.players[pIdx].healCountThisTurn = before.healCount;
+  gs.players[pIdx].attackCountThisTurn = before.attackCount;
+  gs.players[pIdx].actionStrategyCountThisTurn = before.actionStrategyCount;
+  gs.players[pIdx].playedCardTypesThisTurn = before.playedTypes;
+  gs.players[pIdx].lastPlayedCardDef = before.lastPlayedDef;
+  gs.players[pIdx].lastPlayedCardName = before.lastPlayedName;
+
+  // 摸2张牌（附魔自带的奖励）
+  gs.players[pIdx] = drawCards(gs.players[pIdx], 2);
+
+  gs.log.push({
+    turnNumber: gs.turnNumber,
+    message: `附魔台丢弃了${card.name}并触发其效果，摸了2张牌`,
+    timestamp: Date.now(),
+  });
+
+  return gs;
+}
+
+// ===== 运输矿车：处理选牌 =====
+export function handleDraftPick(state: GameState, playerId: string, cardIndex: number): GameState {
+  const s = deepClone(state);
+  const pickerIdx = s.players.findIndex(p => p.id === playerId);
+  if (pickerIdx === -1) return s;
+
+  // 选牌数据始终在打出运输矿车的玩家身上
+  const ownerIdx = s.players.findIndex(p => p.draftCards?.length > 0);
+  if (ownerIdx === -1) return s;
+
+  const owner = s.players[ownerIdx];
+  if (!owner.draftCards || owner.draftCards.length === 0) return s;
+
+  // 判断该轮到谁选
+  const isOwnerPick = owner.id === playerId;
+  const expectedPick = isOwnerPick ? 0 : 1;
+  if (owner.draftPlayerPick !== expectedPick) return s;
+
+  if (cardIndex < 0 || cardIndex >= owner.draftCards.length) return s;
+  if (owner.draftPickedBy && owner.draftPickedBy[cardIndex]) return s;
+
+  // 牌给当前选牌的玩家
+  const picked = owner.draftCards[cardIndex];
+  s.players[pickerIdx].hand.push(picked);
+  owner.draftPickCount += 1;
+  if (!owner.draftPickedBy) owner.draftPickedBy = {};
+  owner.draftPickedBy[cardIndex] = s.players[pickerIdx].name;
 
   // 切换选牌方
-  if (player.draftCards.length > 0) {
-    player.draftPlayerPick = 1 - player.draftPlayerPick;
+  if (owner.draftCards.length > 0 && owner.draftPickCount < 4) {
+    owner.draftPlayerPick = 1 - owner.draftPlayerPick;
   } else {
-    // 选完了
-    player.draftPickCount = 0;
+    owner.draftCards = [];
+    owner.draftPickedBy = {};
+    owner.draftPlayerPick = 0;
+    owner.draftPickCount = 0;
   }
+
+  s.players[ownerIdx] = owner;
+  s.log.push({ turnNumber: s.turnNumber, message: s.players[pickerIdx].name + "选择了" + picked.name, timestamp: Date.now() });
+  return s;
+}
+
+// ===== 水桶：处理封锁选择 =====
+export function handleBucketChoice(state: GameState, playerId: string, lockType: string): GameState {
+  const s = deepClone(state);
+  const idx = s.players.findIndex(p => p.id === playerId);
+  if (idx === -1) return s;
+
+  // pendingBucketChoice 设在对手（水桶目标）身上
+  const oppIdx = 1 - idx;
+  const opponent = s.players[oppIdx];
+  if (opponent.pendingBucketChoice !== 'pending') return s;
+
+  const player = s.players[idx];
+  if (lockType === 'action') {
+    opponent.buffs.push({ buffType: BuffType.LockAction, value: 1, stacks: 1, remainingTurns: 2, sourceCardId: 'bucket' });
+    s.log.push({ turnNumber: s.turnNumber, message: `${player.name}封锁了对手的行动牌`, timestamp: Date.now() });
+  } else if (lockType === 'strategy') {
+    opponent.buffs.push({ buffType: BuffType.LockStrategy, value: 1, stacks: 1, remainingTurns: 2, sourceCardId: 'bucket' });
+    s.log.push({ turnNumber: s.turnNumber, message: `${player.name}封锁了对手的锦囊牌`, timestamp: Date.now() });
+  }
+
+  opponent.pendingBucketChoice = '';
+  s.players[oppIdx] = opponent;
+  return s;
+}
+
+// ===== 诡异钓竿：处理装备丢弃 =====
+export function handleEquipChoice(state: GameState, playerId: string, slot: string): GameState {
+  const s = deepClone(state);
+  const idx = s.players.findIndex(p => p.id === playerId);
+  if (idx === -1) return s;
+
+  const player = s.players[idx];
+  // 找到目标（对手）
+  const oppIdx = 1 - idx;
+  const opponent = s.players[oppIdx];
+
+  if (opponent.pendingEquipChoice !== 'pending') return s;
+
+  const slotKey = slot as keyof typeof opponent.equipment;
+  const card = opponent.equipment[slotKey];
+  if (!card) {
+    s.log.push({ turnNumber: s.turnNumber, message: '该槽位没有装备', timestamp: Date.now() });
+    return s;
+  }
+
+  delete opponent.equipment[slotKey];
+  opponent.discardPile.push(card);
+  opponent.buffs = opponent.buffs.filter(b => b.sourceCardId !== card.id);
+  opponent.pendingEquipChoice = '';
+
+  s.log.push({
+    turnNumber: s.turnNumber,
+    message: `${opponent.name}的${card.name}被丢弃`,
+    timestamp: Date.now(),
+  });
 
   s.players[idx] = player;
   s.players[oppIdx] = opponent;
   return s;
 }
 
-// ===== 水桶：选择封锁类型 =====
-export function handleBucketChoice(state: GameState, playerId: string, lockType: 'action' | 'strategy'): GameState {
+// ===== 酿造台：处理卡牌转化 =====
+export function handleBrewConversion(state: GameState, playerId: string, cardId: string): GameState {
   const s = deepClone(state);
   const idx = s.players.findIndex(p => p.id === playerId);
   if (idx === -1) return s;
-
-  let player = s.players[idx];
-  // 找到对手（被水桶的目标）
-  const oppIdx = 1 - idx;
-  let opponent = s.players[oppIdx];
-
-  if (opponent.pendingBucketChoice !== 'pending') {
-    return s;
-  }
-
-  // 海龟壳：免疫水桶封锁
-  if (opponent.equipment?.equip?.name === '海龟壳') {
-    opponent.pendingBucketChoice = '';
-    s.log.push({ turnNumber: s.turnNumber, message: '水桶被海龟壳免疫！', timestamp: Date.now() });
-    s.players[idx] = player;
-    s.players[oppIdx] = opponent;
-    return s;
-  }
-
-  if (lockType === 'action') {
-    opponent = applyEffectToPlayer(opponent, BuffType.LockAction, 1, 2, 'bucket_lock');
-    s.log.push({ turnNumber: s.turnNumber, message: `水桶封锁了${opponent.name}的行动牌`, timestamp: Date.now() });
-  } else {
-    opponent = applyEffectToPlayer(opponent, BuffType.LockStrategy, 1, 2, 'bucket_lock');
-    s.log.push({ turnNumber: s.turnNumber, message: `水桶封锁了${opponent.name}的锦囊牌`, timestamp: Date.now() });
-  }
-
-  opponent.pendingBucketChoice = '';
-  s.players[idx] = player;
-  s.players[oppIdx] = opponent;
+  const player = s.players[idx];
+  if (player.equipment?.weapon?.name !== '酿造台') return s;
+  const cardIdx = player.hand.findIndex(c => c.id === cardId);
+  if (cardIdx === -1) return s;
+  const card = player.hand[cardIdx];
+  let targetName: string;
+  if (card.name === '苹果') targetName = '烟花';
+  else if (card.name === '烟花') targetName = '苹果';
+  else return s;
+  const template = CARDS.find(c => c.name === targetName);
+  if (!template) return s;
+  player.hand[cardIdx] = { ...template, id: `brew_${template.id}_${Date.now()}` };
+  s.log.push({ turnNumber: s.turnNumber, message: `酿造台：将1张${card.name}转化为${targetName}`, timestamp: Date.now() });
   return s;
 }

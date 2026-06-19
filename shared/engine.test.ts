@@ -82,7 +82,7 @@ if (selfTargetCard) {
     console.log(`  结果: ${result3.messages.join('; ')}`);
     console.log(`  玩家A HP: ${state.players[0].hp}`);
     console.log(`  玩家A 手牌: ${state.players[0].hand.length}张`);
-    console.log(`  行动标记: ${state.players[0].actionUsedThisTurn} (应该还是true)`);
+    console.log(`  回血计数: ${state.players[0].healCountThisTurn}, 攻击计数: ${state.players[0].attackCountThisTurn}`);
   } else {
     console.log(`无法使用 ${selfTargetCard.name}: ${result3.error}`);
   }

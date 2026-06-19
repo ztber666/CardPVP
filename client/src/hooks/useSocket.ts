@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useGameStore } from '../store/gameStore';
+import { displayMessage } from '../store/notificationStore';
 import type { GameState } from '@shared/types';
 
 // 全局单例 socket
@@ -129,11 +130,11 @@ export function useSocket() {
     });
   }, []);
 
-  // 附魔台：丢弃牌
-  const enchantDiscard = useCallback((cardId: string): Promise<{ success: boolean; error?: string }> => {
+  // 诡异钓竿：选择装备
+  const equipChoice = useCallback((slot: string): Promise<{ success: boolean; error?: string }> => {
     return new Promise((resolve) => {
       const socket = getSocket();
-      socket.emit('enchant_discard', { cardId }, (response: { success: boolean; error?: string }) => {
+      socket.emit('equip_choice', { slot }, (response: { success: boolean; error?: string }) => {
         resolve(response);
       });
     });
@@ -154,6 +155,36 @@ export function useSocket() {
     return new Promise((resolve) => {
       const socket = getSocket();
       socket.emit('draft_pick', { cardIndex }, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
+  // 酿造台：选择转化方向
+  const brewChoice = useCallback((cardId: string): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('brew_choice', { cardId }, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+  
+  // 烈焰粉/烈焰棒：确认丢弃手牌
+  const blazeDiscard = useCallback((confirm: boolean): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('blaze_discard', { confirm }, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
+  // 调试：摸指定卡牌
+  const debugDrawCard = useCallback((cardId: string): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('debug_draw_card', { cardId }, (response: { success: boolean; error?: string }) => {
         resolve(response);
       });
     });
@@ -208,6 +239,19 @@ export function useSocket() {
       }
     });
 
+    socket.on('server_notify', (data: { text: string; target: string }) => {
+      console.log('[Notify] 客户端收到 server_notify:', data);
+      const me = useGameStore.getState().player;
+      const isMyTurn = useGameStore.getState().isMyTurn;
+      if (data.target === 'all') {
+        displayMessage(data.text);
+      } else if (data.target === 'self' && isMyTurn) {
+        displayMessage(data.text);
+      } else if (data.target === 'opponent' && !isMyTurn) {
+        displayMessage(data.text);
+      }
+    });
+
     return () => {
       socket.off('connect');
       socket.off('disconnect');
@@ -217,8 +261,9 @@ export function useSocket() {
       socket.off('game_over');
       socket.off('opponent_left');
       socket.off('error');
+      socket.off('server_notify');
     };
-  }, [setConnected, setGameState, setWaitingForOpponent]);
+  }, [setConnected, setGameState, setWaitingForOpponent, reset]);
 
   return {
     connect,
@@ -231,8 +276,11 @@ export function useSocket() {
     unequipCard,
     leaveRoom,
     guessWeight,
-    enchantDiscard,
     draftPick,
     bucketChoice,
+    equipChoice,
+    brewChoice,
+    blazeDiscard,
+    debugDrawCard,
   };
 }

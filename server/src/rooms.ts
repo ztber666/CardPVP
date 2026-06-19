@@ -1,10 +1,13 @@
-import { GameState, GamePhase } from '../../shared/types';
+import { GameState, GamePhase, CardDef } from '../../shared/types';
 import {
   createGame, initGame, startTurn, endTurn, playCard, PlayCardResult,
-  discardFromHand, unequipCard, handleGuessWeight, handleEnchantDiscard, handleDraftPick,
-  handleBucketChoice,
+  discardFromHand, unequipCard, handleGuessWeight, handleDraftPick,
+  handleBucketChoice, handleEquipChoice, handleBrewConversion,
+  handleBlazeDiscard,
 } from '../../shared/gameEngine';
 import { validatePlayCard, validateEndTurn } from '../../shared/validation';
+import { deepClone } from '../../shared/buffEngine';
+import { CARDS } from '../../shared/constants';
 
 /**
  * 房间管理
@@ -24,21 +27,12 @@ interface Room {
 }
 
 const rooms = new Map<string, Room>();
+const socketToRoom = new Map<string, { roomId: string; playerId: string }>();
 
-// 生成4位数字房间码
-function generateRoomId(): string {
-  let id = '';
-  for (let i = 0; i < 4; i++) {
-    id += Math.floor(Math.random() * 10).toString();
-  }
-  // 避免冲突
-  if (rooms.has(id)) return generateRoomId();
-  return id;
-}
-
-export function createRoom(socketId: string, playerName: string): { roomId: string; playerId: string } {
-  const roomId = generateRoomId();
-  const playerId = `player_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+// ===== 房间操作 =====
+export function createRoom(socketId: string, playerName: string): { roomId: string; playerId: string } | null {
+  const roomId = generateRoomCode();
+  const playerId = generatePlayerId();
 
   const room: Room = {
     id: roomId,
@@ -48,38 +42,28 @@ export function createRoom(socketId: string, playerName: string): { roomId: stri
   };
 
   rooms.set(roomId, room);
+  socketToRoom.set(socketId, { roomId, playerId });
+  console.log(`[房间] 创建房间 ${roomId} (${playerName})`);
   return { roomId, playerId };
 }
 
-export function joinRoom(
-  roomId: string,
-  socketId: string,
-  playerName: string
-): { success: boolean; playerId?: string; error?: string; gameState?: GameState } {
+export function joinRoom(socketId: string, roomId: string, playerName: string): { success: boolean; playerId?: string; error?: string } {
   const room = rooms.get(roomId);
-  if (!room) {
-    return { success: false, error: '房间不存在' };
-  }
+  if (!room) return { success: false, error: '房间不存在' };
+  if (room.players.length >= 2) return { success: false, error: '房间已满' };
 
-  if (room.players.length >= 2) {
-    return { success: false, error: '房间已满' };
-  }
-
-  const playerId = `player_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const playerId = generatePlayerId();
   room.players.push({ id: playerId, socketId, name: playerName });
+  socketToRoom.set(socketId, { roomId, playerId });
 
-  // 满2人，开始游戏
+  // 两名玩家到齐，开始游戏
   if (room.players.length === 2) {
-    let state = createGame(
+    const gameState = createGame(
       roomId,
-      room.players[0].id,
-      room.players[0].name,
-      room.players[1].id,
-      room.players[1].name,
+      room.players[0].id, room.players[0].name,
+      room.players[1].id, room.players[1].name
     );
-    state = initGame(state);
-    room.gameState = state;
-    return { success: true, playerId, gameState: state };
+    room.gameState = initGame(gameState);
   }
 
   return { success: true, playerId };
@@ -89,14 +73,45 @@ export function getRoom(roomId: string): Room | undefined {
   return rooms.get(roomId);
 }
 
-export function getRoomBySocketId(socketId: string): { roomId: string; playerId: string } | null {
-  for (const [roomId, room] of rooms.entries()) {
-    const player = room.players.find(p => p.socketId === socketId);
-    if (player) return { roomId, playerId: player.id };
-  }
-  return null;
+export function getRoomBySocketId(socketId: string): { roomId: string; playerId: string } | undefined {
+  return socketToRoom.get(socketId);
 }
 
+export function removePlayer(socketId: string): { roomId: string; playerId: string } | undefined {
+  const roomInfo = socketToRoom.get(socketId);
+  if (!roomInfo) return undefined;
+
+  const room = rooms.get(roomInfo.roomId);
+  if (room) {
+    room.players = room.players.filter(p => p.socketId !== socketId);
+    if (room.players.length === 0) {
+      rooms.delete(roomInfo.roomId);
+      console.log(`[房间] 删除空房间 ${roomInfo.roomId}`);
+    }
+  }
+
+  socketToRoom.delete(socketId);
+  return roomInfo;
+}
+
+export function getAllRooms(): any[] {
+  return Array.from(rooms.values()).map(room => ({
+    id: room.id,
+    players: room.players,
+    status: room.gameState?.phase === 'playing' ? 'playing' : room.gameState?.phase === 'gameOver' ? 'finished' : 'waiting',
+    elapsed: Math.floor((Date.now() - room.createdAt) / 1000),
+  }));
+}
+
+function generateRoomCode(): string {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+function generatePlayerId(): string {
+  return `player_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+}
+
+// ===== 处理出牌 =====
 export function handlePlayCard(
   socketId: string,
   cardId: string,
@@ -122,11 +137,11 @@ export function handlePlayCard(
   return {
     success: result.success,
     gameState: result.gameState,
-    error: result.error,
     messages: result.messages,
   };
 }
 
+// ===== 处理结束回合 =====
 export function handleEndTurn(socketId: string): { success: boolean; gameState?: GameState; error?: string } {
   const roomInfo = getRoomBySocketId(socketId);
   if (!roomInfo) return { success: false, error: '未找到房间' };
@@ -139,18 +154,13 @@ export function handleEndTurn(socketId: string): { success: boolean; gameState?:
     return { success: false, error: validation.error };
   }
 
-  // 结束回合
-  let state = endTurn(room.gameState);
+  room.gameState = endTurn(room.gameState);
+  room.gameState = startTurn(room.gameState);
 
-  // 如果游戏未结束，开始新回合
-  if (state.phase === 'playing') {
-    state = startTurn(state);
-  }
-
-  room.gameState = state;
-  return { success: true, gameState: state };
+  return { success: true, gameState: room.gameState };
 }
 
+// ===== 丢弃手牌 =====
 export function handleDiscardCard(socketId: string, cardId: string): { success: boolean; gameState?: GameState; error?: string } {
   const roomInfo = getRoomBySocketId(socketId);
   if (!roomInfo) return { success: false, error: '未找到房间' };
@@ -162,74 +172,28 @@ export function handleDiscardCard(socketId: string, cardId: string): { success: 
   return { success: true, gameState: room.gameState };
 }
 
+// ===== 卸下装备 =====
 export function handleUnequipCard(socketId: string, slot: string): { success: boolean; gameState?: GameState; error?: string } {
   const roomInfo = getRoomBySocketId(socketId);
   if (!roomInfo) return { success: false, error: '未找到房间' };
+
   const room = rooms.get(roomInfo.roomId);
   if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
+
   room.gameState = unequipCard(room.gameState, roomInfo.playerId, slot);
   return { success: true, gameState: room.gameState };
 }
 
-export function removePlayer(socketId: string): { roomId: string; wasHost: boolean } | null {
-  for (const [roomId, room] of rooms.entries()) {
-    const idx = room.players.findIndex(p => p.socketId === socketId);
-    if (idx !== -1) {
-      room.players.splice(idx, 1);
-      if (room.players.length === 0) {
-        rooms.delete(roomId);
-      }
-      return { roomId, wasHost: idx === 0 };
-    }
-  }
-  return null;
+// ===== 离开房间 =====
+export function handleLeaveRoom(socketId: string): { roomId?: string; gameState?: GameState } {
+  const roomInfo = removePlayer(socketId);
+  if (!roomInfo) return {};
+
+  const room = rooms.get(roomInfo.roomId);
+  return { roomId: roomInfo.roomId, gameState: room?.gameState ?? undefined };
 }
 
-// ===== 主动离开房间（取消匹配） =====
-export function handleLeaveRoom(socketId: string): string | null {
-  for (const [roomId, room] of rooms.entries()) {
-    const idx = room.players.findIndex(p => p.socketId === socketId);
-    if (idx !== -1) {
-      room.players.splice(idx, 1);
-      // 房间空了直接删除
-      if (room.players.length === 0) {
-        rooms.delete(roomId);
-      }
-      return roomId;
-    }
-  }
-  return null;
-}
-
-// ===== 获取所有房间信息 =====
-export function getAllRooms(): Array<{
-  id: string;
-  playerCount: number;
-  players: { id: string; name: string }[];
-  status: 'waiting' | 'playing' | 'finished';
-  elapsed: number; // 已过秒数
-  createdAt: number;
-}> {
-  const now = Date.now();
-  const result: ReturnType<typeof getAllRooms> = [];
-  for (const [roomId, room] of rooms.entries()) {
-    let status: 'waiting' | 'playing' | 'finished' = 'waiting';
-    if (room.gameState) {
-      status = room.gameState.phase === 'gameOver' ? 'finished' : 'playing';
-    }
-    result.push({
-      id: roomId,
-      playerCount: room.players.length,
-      players: room.players.map(p => ({ id: p.id, name: p.name })),
-      status,
-      elapsed: Math.floor((now - room.createdAt) / 1000),
-      createdAt: room.createdAt,
-    });
-  }
-  return result;
-}
-
-// ===== 侦测器：处理猜测 =====
+// ===== 侦测器 =====
 export function handleGuessWeightAction(socketId: string, guess: number): { success: boolean; gameState?: GameState; error?: string } {
   const roomInfo = getRoomBySocketId(socketId);
   if (!roomInfo) return { success: false, error: '未找到房间' };
@@ -239,17 +203,7 @@ export function handleGuessWeightAction(socketId: string, guess: number): { succ
   return { success: true, gameState: room.gameState };
 }
 
-// ===== 附魔台：处理丢弃 =====
-export function handleEnchantDiscardAction(socketId: string, cardId: string): { success: boolean; gameState?: GameState; error?: string } {
-  const roomInfo = getRoomBySocketId(socketId);
-  if (!roomInfo) return { success: false, error: '未找到房间' };
-  const room = rooms.get(roomInfo.roomId);
-  if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
-  room.gameState = handleEnchantDiscard(room.gameState, roomInfo.playerId, cardId);
-  return { success: true, gameState: room.gameState };
-}
-
-// ===== 运输矿车：处理选牌 =====
+// ===== 运输矿车 =====
 export function handleDraftPickAction(socketId: string, cardIndex: number): { success: boolean; gameState?: GameState; error?: string } {
   const roomInfo = getRoomBySocketId(socketId);
   if (!roomInfo) return { success: false, error: '未找到房间' };
@@ -259,14 +213,58 @@ export function handleDraftPickAction(socketId: string, cardIndex: number): { su
   return { success: true, gameState: room.gameState };
 }
 
-// ===== 水桶：选择封锁类型 =====
-export function handleBucketChoiceAction(socketId: string, lockType: 'action' | 'strategy'): { success: boolean; gameState?: GameState; error?: string } {
+// ===== 水桶 =====
+export function handleBucketChoiceAction(socketId: string, lockType: string): { success: boolean; gameState?: GameState; error?: string } {
   const roomInfo = getRoomBySocketId(socketId);
   if (!roomInfo) return { success: false, error: '未找到房间' };
   const room = rooms.get(roomInfo.roomId);
   if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
   room.gameState = handleBucketChoice(room.gameState, roomInfo.playerId, lockType);
   return { success: true, gameState: room.gameState };
+}
+
+// ===== 诡异钓竿 =====
+export function handleEquipChoiceAction(socketId: string, slot: string): { success: boolean; gameState?: GameState; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+  const room = rooms.get(roomInfo.roomId);
+  if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
+  room.gameState = handleEquipChoice(room.gameState, roomInfo.playerId, slot);
+  return { success: true, gameState: room.gameState };
+}
+
+// ===== 酿造台 =====
+export function handleBrewConversionAction(socketId: string, cardId: string): { success: boolean; gameState?: GameState; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+  const room = rooms.get(roomInfo.roomId);
+  if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
+  room.gameState = handleBrewConversion(room.gameState, roomInfo.playerId, cardId);
+  return { success: true, gameState: room.gameState };
+}
+
+// ===== 调试：摸指定卡牌 =====
+export function handleDebugDrawCard(socketId: string, cardIdInput: string): { success: boolean; gameState?: GameState; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+  const room = rooms.get(roomInfo.roomId);
+  if (!room || !room.gameState) return { success: false, error: '房间或游戏状态不存在' };
+
+  const templateId = cardIdInput.startsWith('card_') ? cardIdInput : `card_${cardIdInput}`;
+  const template = CARDS.find(c => c.id === templateId);
+  if (!template) return { success: false, error: `未找到卡牌: ${cardIdInput}` };
+
+  const newCard: CardDef = {
+    ...template,
+    id: `debug_${templateId}_${Date.now()}`,
+  };
+
+  const state = deepClone(room.gameState);
+  const idx = state.players.findIndex(p => p.id === roomInfo.playerId);
+  if (idx === -1) return { success: false, error: '玩家不存在' };
+  state.players[idx].hand.push(newCard);
+  room.gameState = state;
+  return { success: true, gameState: state };
 }
 
 // ===== 管理员删除房间 =====
@@ -277,18 +275,16 @@ export function adminDeleteRoom(roomId: string): boolean {
   return true;
 }
 
-// ===== 清理过期房间（每30秒检查一次） =====
-const ROOM_TTL = 5 * 60 * 1000; // 5分钟
+// ===== 清理过期房间 =====
+const ROOM_TTL = 5 * 60 * 1000;
 export function startRoomCleanup(): void {
   setInterval(() => {
     const now = Date.now();
     for (const [roomId, room] of rooms.entries()) {
-      // 只有1人且在等待中超过TTL → 删除
       if (room.players.length < 2 && room.gameState === null && (now - room.createdAt) > ROOM_TTL) {
         console.log(`[清理] 过期房间 ${roomId}`);
         rooms.delete(roomId);
       }
     }
   }, 30000);
-  console.log('[房间清理] 已启动，每30秒检查一次');
 }

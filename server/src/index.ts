@@ -19,9 +19,12 @@ import {
   getAllRooms,
   adminDeleteRoom,
   handleGuessWeightAction,
-  handleEnchantDiscardAction,
   handleDraftPickAction,
   handleBucketChoiceAction,
+  handleEquipChoiceAction,
+  handleBrewConversionAction,
+  handleDebugDrawCard,
+  handleBlazeDiscardAction,
 } from './rooms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,11 +36,11 @@ app.use(cors());
 const clientDist = path.resolve(__dirname, '../../client/dist');
 app.use(express.static(clientDist));
 
-// 托管资源文件（卡牌图片、Buff图标等）
+// 托管资源文件
 const assetsDir = path.resolve(__dirname, '../../assets');
 app.use('/assets', express.static(assetsDir));
 
-// ===== 房间管理 API =====
+// ===== 管理 API =====
 app.get('/api/rooms', (_req, res) => {
   res.json(getAllRooms());
 });
@@ -58,22 +61,25 @@ app.get('/admin', (_req, res) => {
   res.sendFile(adminPath);
 });
 
-// 所有非 API、非 /admin 路由返回 index.html（SPA 支持）
+// ===== 托管前端（SPA 降级） =====
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(clientDist, 'index.html'));
+  res.sendFile(path.resolve(clientDist, 'index.html'));
 });
 
-const httpServer = createServer(app);
-
-const io = new Server(httpServer, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST'],
-  },
-  // 生产环境从 env 读取
-  pingInterval: 10000,
-  pingTimeout: 5000,
+// ===== Socket.IO =====
+const server = createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
 });
+
+const PORT = 3001;
+
+// 服务端通知 → 广播给所有客户端（在 cardEngine.ts 中调用 showMessage 时触发）
+(globalThis as any).__card_notify_handler = (msg: string, target: string) => {
+  console.log('[Notify] 服务端发送 server_notify:', msg, 'target:', target);
+  io.emit('server_notify', { text: msg, target });
+};
+console.log('[Notify] handler 已注册');
 
 io.on('connection', (socket) => {
   console.log(`[连接] ${socket.id}`);
@@ -98,8 +104,8 @@ io.on('connection', (socket) => {
     }
 
     const result = joinRoom(
-      roomId,
       socket.id,
+      roomId,
       playerName || `玩家${socket.id.slice(0, 4)}`
     );
 
@@ -109,15 +115,16 @@ io.on('connection', (socket) => {
       // 通知房间内已有玩家
       io.to(roomId).emit('player_joined', {
         playerCount: room.players.length,
-        players: room.players.map(p => ({ id: p.id, name: p.name })),
       });
 
-      // 如果游戏开始，通知双方
-      if (result.gameState) {
-        // 分别发送游戏状态（每人看自己的视角）
-        for (const player of room.players) {
-          const stateForPlayer = filterStateForPlayer(result.gameState, player.id);
-          io.to(player.socketId).emit('game_started', stateForPlayer);
+      // 有 2 名玩家，开始游戏
+      if (room.gameState) {
+        io.to(roomId).emit('game_started', room.gameState);
+
+        // 通知双方游戏开始
+        for (const p of room.players) {
+          const stateForPlayer = filterStateForPlayer(room.gameState, p.id);
+          io.to(p.socketId).emit('state_update', stateForPlayer);
         }
       }
 
@@ -129,36 +136,20 @@ io.on('connection', (socket) => {
 
   // ===== 出牌 =====
   socket.on('play_card', ({ cardId, targetId }: { cardId: string; targetId: string }, callback) => {
-    console.log(`[出牌] ${socket.id} card:${cardId} -> ${targetId}`);
+    console.log(`[出牌] ${socket.id} card:${cardId} target:${targetId}`);
 
     const result = handlePlayCard(socket.id, cardId, targetId);
 
     if (result.success && result.gameState) {
-      // 广播给房间内双方
       const roomInfo = getRoomBySocketId(socket.id);
       if (roomInfo) {
         const room = getRoom(roomInfo.roomId);
         if (room) {
           for (const player of room.players) {
-            const stateForPlayer = filterStateForPlayer(result.gameState, player.id);
-            io.to(player.socketId).emit('state_update', stateForPlayer);
-          }
-
-          // 游戏结束处理
-          if (result.gameState.phase === 'gameOver') {
-            // 延迟一点发送结束事件
-            setTimeout(() => {
-              for (const player of room.players) {
-                io.to(player.socketId).emit('game_over', {
-                  winnerId: result.gameState!.winnerId,
-                  state: filterStateForPlayer(result.gameState!, player.id),
-                });
-              }
-            }, 500);
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
           }
         }
       }
-
       callback({ success: true, messages: result.messages });
     } else {
       callback({ success: false, error: result.error });
@@ -200,8 +191,7 @@ io.on('connection', (socket) => {
         const room = getRoom(roomInfo.roomId);
         if (room) {
           for (const player of room.players) {
-            const stateForPlayer = filterStateForPlayer(result.gameState, player.id);
-            io.to(player.socketId).emit('state_update', stateForPlayer);
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
           }
         }
       }
@@ -230,10 +220,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ===== 主动离开房间 =====
+  // ===== 离开房间 =====
   socket.on('leave_room', () => {
-    console.log(`[离开房间] ${socket.id}`);
-    handleLeaveRoom(socket.id);
+    const result = handleLeaveRoom(socket.id);
+    if (result.roomId) {
+      socket.leave(result.roomId);
+    }
   });
 
   // ===== 获取房间列表 =====
@@ -244,25 +236,6 @@ io.on('connection', (socket) => {
   // ===== 侦测器：猜测权重 =====
   socket.on('guess_weight', ({ guess }: { guess: number }, callback) => {
     const result = handleGuessWeightAction(socket.id, guess);
-    if (result.success && result.gameState) {
-      const roomInfo = getRoomBySocketId(socket.id);
-      if (roomInfo) {
-        const room = getRoom(roomInfo.roomId);
-        if (room) {
-          for (const player of room.players) {
-            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
-          }
-        }
-      }
-      callback({ success: true });
-    } else {
-      callback({ success: false, error: result.error });
-    }
-  });
-
-  // ===== 附魔台：丢弃牌触发 =====
-  socket.on('enchant_discard', ({ cardId }: { cardId: string }, callback) => {
-    const result = handleEnchantDiscardAction(socket.id, cardId);
     if (result.success && result.gameState) {
       const roomInfo = getRoomBySocketId(socket.id);
       if (roomInfo) {
@@ -299,8 +272,65 @@ io.on('connection', (socket) => {
   });
 
   // ===== 水桶：选择封锁类型 =====
-  socket.on('bucket_choice', ({ lockType }: { lockType: 'action' | 'strategy' }, callback) => {
+  socket.on('bucket_choice', ({ lockType }: { lockType: string }, callback) => {
     const result = handleBucketChoiceAction(socket.id, lockType);
+    if (result.success && result.gameState) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const player of room.players) {
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  // ===== 诡异钓竿：选择装备 =====
+  socket.on('equip_choice', ({ slot }: { slot: string }, callback) => {
+    const result = handleEquipChoiceAction(socket.id, slot);
+    if (result.success && result.gameState) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const player of room.players) {
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  // ===== 酿造台：选择转化方向 =====
+  socket.on('brew_choice', ({ cardId }: { cardId: string }, callback) => {
+    const result = handleBrewConversionAction(socket.id, cardId);
+    if (result.success && result.gameState) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const player of room.players) {
+            io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  // ===== 调试：摸指定卡牌 =====
+  socket.on('debug_draw_card', ({ cardId }: { cardId: string }, callback) => {
+    const result = handleDebugDrawCard(socket.id, cardId);
     if (result.success && result.gameState) {
       const roomInfo = getRoomBySocketId(socket.id);
       if (roomInfo) {
@@ -327,27 +357,35 @@ io.on('connection', (socket) => {
   });
 });
 
-/**
- * 为特定玩家过滤游戏状态（隐藏对手手牌和牌库）
- */
 function filterStateForPlayer(state: any, playerId: string): any {
   const filtered = JSON.parse(JSON.stringify(state));
 
-  for (const player of filtered.players) {
-    if (player.id !== playerId) {
-      // 对手只看手牌数量，不看作具体牌
-      player.hand = player.hand.map(() => ({ hidden: true }));
-      // 隐藏对手牌库
-      player.deck = [];
+  const draftOwner = filtered.players.find((p: any) => p.draftCards?.length > 0);
+  const draftInfo = draftOwner ? { draftCards: draftOwner.draftCards, draftPlayerPick: draftOwner.draftPlayerPick, draftPickedBy: draftOwner.draftPickedBy } : null;
+
+  for (const p of filtered.players) {
+    if (p.id !== playerId) {
+      p.hand = p.hand.map(() => ({ hidden: true }));
+      p.deck = [];
+      p.draftPickCount = undefined;
+    } else {
+      if (draftInfo) {
+        p.draftCards = draftInfo.draftCards;
+        p.draftPlayerPick = draftInfo.draftPlayerPick;
+        p.draftPickedBy = draftInfo.draftPickedBy;
+      }
     }
+  }
+
+  // 清理临时标记
+  for (const p of filtered.players) {
+    delete (p as any)._blazePowderTrigger;
   }
 
   return filtered;
 }
 
-// 启动服务器
-const PORT = parseInt(process.env.PORT || '3001', 10);
-httpServer.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`[CardPVP] 服务器启动: http://localhost:${PORT}`);
   startRoomCleanup();
 });

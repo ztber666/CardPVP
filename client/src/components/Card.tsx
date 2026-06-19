@@ -74,11 +74,11 @@ export default function Card({ card, compact, disabled, selected, onClick, hidde
         className={`
           w-14 h-20 bg-card-bg border border-card-border rounded-lg
           flex flex-col items-center justify-start gap-0.5 px-1 pt-1
-          shadow-card select-none transition-all duration-150
+          shadow-card select-none transition-ios
           border-l-[3px] ${borderCls}
           ${selected
-            ? '-translate-y-3 shadow-md ring-2 ring-accent-shield/30'
-            : disabled ? 'opacity-50 cursor-not-allowed grayscale' : 'cursor-pointer hover:-translate-y-1.5 hover:shadow-sm'
+            ? '-translate-y-3 shadow-xl ring-2 ring-accent-shield/30'
+            : disabled ? 'opacity-50 cursor-not-allowed grayscale' : 'cursor-pointer'
           }
         `}
       >
