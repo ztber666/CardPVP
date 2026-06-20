@@ -88,7 +88,7 @@ export function createGame(
       },
     ],
     currentTurnIndex: 0,
-    turnNumber: 0,
+    turnNumber: 1,
     phase: GamePhase.Playing,
     log: [],
   };
@@ -484,12 +484,11 @@ export function handleBucketChoice(state: GameState, playerId: string, lockType:
   const idx = s.players.findIndex(p => p.id === playerId);
   if (idx === -1) return s;
 
-  // pendingBucketChoice 设在对手（水桶目标）身上
+  const player = s.players[idx];
+  if (player.pendingBucketChoice !== 'pending') return s;
+
   const oppIdx = 1 - idx;
   const opponent = s.players[oppIdx];
-  if (opponent.pendingBucketChoice !== 'pending') return s;
-
-  const player = s.players[idx];
   if (lockType === 'action') {
     opponent.buffs.push({ buffType: BuffType.LockAction, value: 1, stacks: 1, remainingTurns: 2, sourceCardId: 'bucket' });
     s.log.push({ turnNumber: s.turnNumber, message: `${player.name}封锁了对手的行动牌`, timestamp: Date.now() });
@@ -498,7 +497,8 @@ export function handleBucketChoice(state: GameState, playerId: string, lockType:
     s.log.push({ turnNumber: s.turnNumber, message: `${player.name}封锁了对手的锦囊牌`, timestamp: Date.now() });
   }
 
-  opponent.pendingBucketChoice = '';
+  player.pendingBucketChoice = '';
+  s.players[idx] = player;
   s.players[oppIdx] = opponent;
   return s;
 }
@@ -510,11 +510,10 @@ export function handleEquipChoice(state: GameState, playerId: string, slot: stri
   if (idx === -1) return s;
 
   const player = s.players[idx];
-  // 找到目标（对手）
+  if (player.pendingEquipChoice !== 'pending') return s;
+
   const oppIdx = 1 - idx;
   const opponent = s.players[oppIdx];
-
-  if (opponent.pendingEquipChoice !== 'pending') return s;
 
   const slotKey = slot as keyof typeof opponent.equipment;
   const card = opponent.equipment[slotKey];
@@ -526,7 +525,7 @@ export function handleEquipChoice(state: GameState, playerId: string, slot: stri
   delete opponent.equipment[slotKey];
   opponent.discardPile.push(card);
   opponent.buffs = opponent.buffs.filter(b => b.sourceCardId !== card.id);
-  opponent.pendingEquipChoice = '';
+  player.pendingEquipChoice = '';
 
   s.log.push({
     turnNumber: s.turnNumber,

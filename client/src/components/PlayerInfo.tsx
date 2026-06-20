@@ -1,17 +1,12 @@
 import { useState } from 'react';
 import { PlayerState, CardDef, BUFF_NAMES, COST_TYPE_NAMES } from '@shared/types';
 import BuffBadge from './BuffBadge';
+import { getCardImageUrl } from '../utils/cardImage';
 
 interface Props {
   player: PlayerState;
   isOpponent?: boolean;
   onUnequip?: (slot: string) => void;
-}
-
-function getEquipImageUrl(card: CardDef): string {
-  const num = card.id.replace('card_', '').split('_')[0];
-  const ext = num === '21' ? '.gif' : '.png';
-  return `/assets/item/${num}${ext}`;
 }
 
 const SLOT_NAMES: Record<string, string> = { equip: '装备', weapon: '武器', field: '场地' };
@@ -64,7 +59,7 @@ export default function PlayerInfo({ player, isOpponent, onUnequip }: Props) {
             >
               {card ? (
                 <>
-                  <img src={getEquipImageUrl(card)} alt={card.name} className="w-6 h-6 object-contain" />
+                  <img src={getCardImageUrl(card.id)} alt={card.name} className="w-6 h-6 object-contain" />
                   <span className="text-[10px] text-text-primary font-medium">{card.name}</span>
                 </>
               ) : (
@@ -86,7 +81,7 @@ export default function PlayerInfo({ player, isOpponent, onUnequip }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 mb-3">
-              <img src={getEquipImageUrl(detailCard.card)} alt={detailCard.card.name} className="w-10 h-10 object-contain" />
+              <img src={getCardImageUrl(detailCard.card.id)} alt={detailCard.card.name} className="w-10 h-10 object-contain" />
               <div>
                 <h3 className="text-base font-bold text-text-primary">{detailCard.card.name}</h3>
                 <span className="text-[10px] text-text-secondary">

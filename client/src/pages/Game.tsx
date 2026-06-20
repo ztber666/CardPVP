@@ -9,6 +9,7 @@ import GameLog from '../components/GameLog';
 import CardDetail from '../components/CardDetail';
 import NotificationToast from '../components/NotificationToast';
 import { displayMessage } from '../store/notificationStore';
+import { getCardImageUrl } from '../utils/cardImage';
 
 export default function Game() {
   const { playCard, endTurn, discardCard, unequipCard, disconnect, guessWeight, draftPick, bucketChoice, equipChoice, brewChoice, blazeDiscard, debugDrawCard } = useSocket();
@@ -99,20 +100,25 @@ export default function Game() {
       setDraftCardsList(me.draftCards);
       setShowDraftDialog(true);
     }
+    // 运输矿车：选牌结束（draftCards 清空时关闭弹窗）
+    if ((!me.draftCards || me.draftCards.length === 0) && showDraftDialog) {
+      setShowDraftDialog(false);
+      setDraftCardsList([]);
+    }
 
     // 水桶：选择封锁类型
-    if (opponent?.pendingBucketChoice === 'pending' && !shownBucket.current) {
+    if (me?.pendingBucketChoice === 'pending' && !shownBucket.current) {
       shownBucket.current = true;
       setShowBucketDialog(true);
     }
-    if (!opponent?.pendingBucketChoice) shownBucket.current = false;
+    if (!me?.pendingBucketChoice) shownBucket.current = false;
 
     // 诡异钓竿：选择装备
-    if (opponent?.pendingEquipChoice === 'pending' && !shownEquip.current) {
+    if (me?.pendingEquipChoice === 'pending' && !shownEquip.current) {
       shownEquip.current = true;
       setShowEquipDialog(true);
     }
-    if (!opponent?.pendingEquipChoice) shownEquip.current = false;
+    if (!me?.pendingEquipChoice) shownEquip.current = false;
 
     // 运输矿车：有 draftCards 时重置 ref 让弹窗可以重新显示
     if (me.draftCards && me.draftCards.length > 0 && shownDraft.current && !showDraftDialog) {
@@ -344,7 +350,7 @@ export default function Game() {
           >
             {/* 选中卡牌简讯 */}
             <div className="flex items-center gap-2 mb-2 px-1">
-              {(() => { const n = panelCard.id.replace('card_', '').split('_')[0]; const ext = n === '21' ? '.gif' : '.png'; return <img src={`/assets/item/${n}${ext}`} alt="" className="w-7 h-7 object-contain" />; })()}
+              <img src={getCardImageUrl(panelCard.id)} alt="" className="w-7 h-7 object-contain" />
               <span className="text-sm font-semibold text-text-primary">{panelCard.name}</span>
               {(() => {
                 const subtype = getSubtypeLabel(panelCard);
@@ -489,15 +495,13 @@ export default function Game() {
             <p className="text-sm text-text-secondary mb-4">选择一张牌丢弃并触发其效果：</p>
             <div className="space-y-2">
               {enchantableCards.map(card => {
-                const n = card.id.replace('card_', '').split('_')[0];
-                const ext = n === '21' ? '.gif' : '.png';
                 return (
                   <button
                     key={card.id}
                     onClick={() => handleEnchantSelect(card.id)}
                     className="w-full flex items-center gap-3 p-3 rounded-xl border border-card-border hover:border-accent-shield/40 transition-colors hover:bg-card-bg/50 text-left"
                   >
-                    <img src={`/assets/item/${n}${ext}`} alt="" className="w-8 h-8 object-contain" />
+                    <img src={getCardImageUrl(card.id)} alt="" className="w-8 h-8 object-contain" />
                     <div>
                       <span className="text-sm font-semibold text-text-primary">{card.name}</span>
                       <span className="text-xs text-text-secondary ml-2">{COST_TYPE_NAMES[card.costType]}</span>
@@ -544,12 +548,11 @@ export default function Game() {
               {(['equip', 'weapon', 'field'] as const).map(slot => {
                 const item = opponent.equipment[slot];
                 if (!item) return null;
-                const n = item.id.replace('card_', '').split('_')[0];
                 return (
                   <button key={slot} onClick={() => handleEquipSelect(slot)}
                     className="w-full flex items-center gap-3 p-3 rounded-xl border border-card-border hover:border-accent-attack/40 transition-colors hover:bg-card-bg/50 text-left"
                   >
-                    <img src={`/assets/item/${n}.png`} alt="" className="w-8 h-8 object-contain" />
+                    <img src={getCardImageUrl(item.id)} alt="" className="w-8 h-8 object-contain" />
                     <div>
                       <span className="text-sm font-semibold text-text-primary">{item.name}</span>
                       <span className="text-xs text-text-secondary ml-2">{slot === 'equip' ? '装备' : slot === 'weapon' ? '武器' : '场地'}</span>
@@ -579,8 +582,6 @@ export default function Game() {
               {draftCardsList.map((card, idx) => {
                 const isPicked = me?.draftPickedBy && me.draftPickedBy[idx];
                 const pickerName = isPicked ? me.draftPickedBy[idx] : null;
-                const n = card.id.replace('card_', '').split('_')[0];
-                const ext = n === '21' ? '.gif' : '.png';
                 return (
                   <button
                     key={idx}
@@ -588,7 +589,7 @@ export default function Game() {
                     disabled={!!isPicked || !((me?.draftPlayerPick === 0 && isMyTurn) || (me?.draftPlayerPick === 1 && !isMyTurn))}
                     className={'flex flex-col items-center gap-1 p-3 rounded-xl border transition-colors ' + (isPicked ? 'border-gray-300 bg-gray-100 opacity-50 cursor-not-allowed' : 'border-card-border hover:border-accent-shield/40 hover:bg-card-bg/50')}
                   >
-                    <img src={"/assets/item/" + n + ext} alt="" className="w-10 h-10 object-contain" />
+                    <img src={getCardImageUrl(card.id)} alt="" className="w-10 h-10 object-contain" />
                     <span className="text-xs font-semibold text-text-primary text-center">{card.name}</span>
                     {pickerName && <span className="text-[9px] text-text-secondary">{pickerName} 已选</span>}
                   </button>

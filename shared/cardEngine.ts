@@ -554,17 +554,13 @@ export function applyCard(
 
   // 水桶：设置待选封锁类型
   if (card.name === '水桶') {
-    const target = isSelfTarget ? p : t;
-    target.pendingBucketChoice = 'pending';
-    if (isSelfTarget) p = target; else t = target;
+    p.pendingBucketChoice = 'pending';
     msgs.push('水桶：请选择封锁行动牌还是锦囊牌');
   }
 
   // 诡异钓竿：设置待选装备
   if (card.name === '诡异钓竿') {
-    const target = isSelfTarget ? p : t;
-    target.pendingEquipChoice = 'pending';
-    if (isSelfTarget) p = target; else t = target;
+    p.pendingEquipChoice = 'pending';
     msgs.push('诡异钓竿：请选择要丢弃的装备');
   }
 

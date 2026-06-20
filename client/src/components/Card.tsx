@@ -1,4 +1,5 @@
 import { CardDef, CostType, COST_TYPE_NAMES } from '@shared/types';
+import { getCardImageUrl } from '../utils/cardImage';
 
 interface Props {
   card: CardDef;
@@ -43,13 +44,6 @@ const COST_TYPE_LABELS: Record<string, string> = {
   [CostType.Event]: '事件', [CostType.Equip]: '装备', [CostType.Weapon]: '武器',
   [CostType.Field]: '场地', [CostType.Counter]: '策略',
 };
-
-// 从 card.id 中提取图片编号 (card_1 → 1)，支持 .gif
-function getCardImageUrl(cardId: string): string {
-  const num = cardId.replace('card_', '').split('_')[0];
-  const ext = num === '21' ? '.gif' : '.png';
-  return `/assets/item/${num}${ext}`;
-}
 
 export default function Card({ card, compact, disabled, selected, onClick, hidden }: Props) {
   // 卡背

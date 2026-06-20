@@ -226,9 +226,8 @@ export function useSocket() {
     });
 
     socket.on('opponent_left', () => {
-      console.log('[Socket] 对手离开，返回大厅');
-      reset();
-      window.location.reload();
+      console.log('[Socket] 对手已断开连接');
+      displayMessage('对手已断开连接');
     });
 
     socket.on('error', (error: string) => {
