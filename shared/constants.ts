@@ -278,7 +278,7 @@ export const CARDS: CardTemplate[] = [
     id: 'card_34', name: '冰原', icon: '10', weight: 1,
     costType: CostType.Field,
     effects: [],
-    description: '回血类和攻击类消耗次数互通（行动上限+1）/ 锦囊上限-1',
+    description: '回血类和攻击类消耗次数互通',
   },
   {
     id: 'card_35', name: '陷阱箱', icon: '6,2', weight: 2,

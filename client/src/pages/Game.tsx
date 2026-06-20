@@ -302,15 +302,11 @@ export default function Game() {
 
   function isCardExhausted(card: CardDef): boolean {
     if (!me) return true;
-    // 所有行动牌（含回血/攻击类）+ 锦囊牌 → 先检查共享池
+    //检查共享池
     if (card.costType === CostType.Action || card.costType === CostType.Strategy) {
       const poolLimit = 5 + (me.actionLimitBonus || 0);
       if ((me.actionStrategyCountThisTurn || 0) >= poolLimit) return true;
     }
-    // 回血类/攻击类：各1张/回合（额外限制）
-    const subtype = getSubtypeLabel(card);
-    if (subtype === '回血') return (me.healCountThisTurn || 0) >= 1;
-    if (subtype === '攻击') return (me.attackCountThisTurn || 0) >= 1;
     return false;
   }
 
@@ -388,8 +384,7 @@ export default function Game() {
               </button>
               {panelCard.costType !== CostType.Equip && panelCard.costType !== CostType.Weapon && panelCard.costType !== CostType.Field && (
                 <button
-                  onClick={() => handlePlayCard(opponent.id)}
-                  disabled={isCardExhausted(panelCard)}
+                  onClick={() => handlePlayCard(opponent.id)}  
                   className="flex-1 py-2 rounded-lg bg-accent-attack/15 text-accent-attack text-xs font-medium hover:bg-accent-attack/25 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   title={isCardExhausted(panelCard) ? '本回合行动/锦囊次数已用完' : ''}
                 >
@@ -409,7 +404,7 @@ export default function Game() {
               )}
               <button
                 onClick={() => handlePlayCard(me.id)}
-                disabled={isCardExhausted(panelCard)}
+                //disabled={isCardExhausted(panelCard)}
                 className="flex-1 py-2 rounded-lg bg-accent-heal/15 text-accent-heal text-xs font-medium hover:bg-accent-heal/25 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 💚 对自己

@@ -8,5 +8,6 @@
     },
     "baseUrl": "."
   },
-  "include": ["src/**/*", "../shared/**/*"]
+  "include": ["src/**/*", "../shared/**/*"],
+  "exclude": ["../shared/**/*.test.ts"]
 }

@@ -120,7 +120,6 @@ function refreshEquipment(player: PlayerState): PlayerState {
 
   // 检查场地卡加成
   if (p.equipment.field?.name === '村庄') p.handLimitBonus = 4;
-  if (p.equipment.field?.name === '冰原') p.actionLimitBonus = 1;
 
   return p;
 }

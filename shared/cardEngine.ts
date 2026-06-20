@@ -99,6 +99,31 @@ export function canPlayCard(player: PlayerState, card: CardDef, targetSelf?: boo
     return { valid: false, reason: '卡牌不在手牌中' };
   }
 
+  //烈焰粉：不满足条件无法打出
+  if (card.name === '烈焰粉' && !player.canEnchantDiscard) {
+    return { valid: false, reason: '上一张未造成物理伤害，无法打出烈焰粉' };
+  }
+
+  //附魔台：不满足条件无法打出
+  if (card.name === '附魔台') {
+    const checkTypes = [CostType.Heal, CostType.Attack, CostType.Buff, CostType.Debuff, CostType.Event];
+    const played = player.playedCardTypesThisTurn || [];
+    const matchedTypes = checkTypes.filter(ct => played.includes(ct));
+    if (matchedTypes.length < 4) {
+      return { valid: false, reason: '本回合未打出4种类型牌，无法打出附魔台' };
+    }
+  }
+
+  //玻璃板：复制行动牌时检查消耗次数
+  if (card.name === '玻璃板' && player.lastPlayedCardCostType === CostType.Action && (player.actionStrategyCountThisTurn || 0) >= (3 + (player.actionLimitBonus || 0))) {
+    return { valid: false, reason: '本回合行动/锦囊牌已达上限' };
+  }
+
+  //运输矿车：牌组中剩余牌数不足4张时无法打出
+  if (card.name === '运输矿车' && player.deck.length < 4) {
+    return { valid: false, reason: '牌组剩余牌数不足4张，无法打出运输矿车' };
+  }
+
   // 行动封锁：无法使用行动卡/回血卡/攻击卡
   const isActionType = card.costType === CostType.Action || card.costType === CostType.Heal || card.costType === CostType.Attack;
   if (isActionType && player.buffs.some(b => b.buffType === BuffType.LockAction)) {
@@ -126,10 +151,14 @@ export function canPlayCard(player: PlayerState, card: CardDef, targetSelf?: boo
   }
   // 回血类/攻击类：各1张/回合（额外限制）
   if (subtype === 'heal' && (player.healCountThisTurn || 0) >= 1) {
-    return { valid: false, reason: '每回合最多出1张回血类卡牌' };
+    if (player.equipment?.field?.name === '冰原' && (player.attackCountThisTurn || 0) < 1) {
+      return { valid: true }; // 冰原场地加成：回血类和攻击类消耗次数互通
+    } else return { valid: false, reason: '每回合最多出1张回血类卡牌' };
   }
   if (subtype === 'attack' && (player.attackCountThisTurn || 0) >= 1) {
-    return { valid: false, reason: '每回合最多出1张攻击类卡牌' };
+    if (player.equipment?.field?.name === '冰原' && (player.healCountThisTurn || 0) < 1) {
+      return { valid: true }; // 冰原场地加成：回血类和攻击类消耗次数互通
+    } else return { valid: false, reason: '每回合最多出1张攻击类卡牌' };
   }
 
   return { valid: true };
@@ -306,8 +335,18 @@ export function applyCard(
 
   // 更新消耗计数
   const subtype = getCardSubtype(card);
-  if (subtype === 'heal') p.healCountThisTurn = (p.healCountThisTurn || 0) + 1;
-  if (subtype === 'attack') p.attackCountThisTurn = (p.attackCountThisTurn || 0) + 1;
+  if (subtype === 'heal') {
+    if (p.equipment?.field?.name === '冰原' && (p.healCountThisTurn || 0) >=1) {
+      showMessage(`${p.name}触发冰原效果`, 'all');
+      p.attackCountThisTurn = (p.attackCountThisTurn || 0) + 1; // 冰原场地加成：回血类和攻击类消耗次数互通
+    } else p.healCountThisTurn = (p.healCountThisTurn || 0) + 1;
+  }
+  if (subtype === 'attack'){
+    if (p.equipment?.field?.name === '冰原' && (p.attackCountThisTurn || 0) >=1) {
+      showMessage(`${p.name}触发冰原效果`, 'all');
+      p.healCountThisTurn = (p.healCountThisTurn || 0) + 1; // 冰原场地加成：回血类和攻击类消耗次数互通
+    } else p.attackCountThisTurn = (p.attackCountThisTurn || 0) + 1;
+  }
   // 所有行动牌（含回血/攻击类）+ 锦囊牌 → 共享池
   if (card.costType === CostType.Action || card.costType === CostType.Strategy) {
     p.actionStrategyCountThisTurn = (p.actionStrategyCountThisTurn || 0) + 1;
