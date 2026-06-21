@@ -55,7 +55,7 @@ export function drawCards(player: PlayerState, count: number): PlayerState {
       if (curseBuff) p.hp = Math.max(0, p.hp - curseBuff.value);
       // 丢弃事件：下界荒地
       if (p.equipment?.field?.name === '下界荒地' && (p.shieldOnDiscardCount || 0) < 2) {
-        p = applyEffectToPlayer(p, BuffType.Shield, 1, undefined, p.equipment.field.id);
+        applyEffectToPlayer(p, BuffType.Shield, 1, undefined, p.equipment.field.id, p.id);
         p.shieldOnDiscardCount = (p.shieldOnDiscardCount || 0) + 1;
       }
       // 从手牌移除
@@ -72,7 +72,7 @@ export function drawCards(player: PlayerState, count: number): PlayerState {
   const witherOnDraw = getBuffStacks(p, BuffType.WitherOnDraw);
   if (witherOnDraw > 0 && drawnCount > 0) {
     for (let i = 0; i < drawnCount; i++) {
-      p = applyEffectToPlayer(p, BuffType.Wither, 1, undefined, 'wither_on_draw');
+      applyEffectToPlayer(p, BuffType.Wither, 1, undefined, 'wither_on_draw', p.id);
     }
   }
 
@@ -177,7 +177,7 @@ export interface ApplyCardResult {
   logMessages: string[];
 }
 
-export function heal(target: PlayerState, number: number) {
+export function heal(source: PlayerState, target: PlayerState, number: number) {
   let healAmt = Math.max(0, number);
   //治愈增强
   healAmt += getBuffStacks(target, BuffType.HealBoost);
@@ -192,31 +192,29 @@ export function heal(target: PlayerState, number: number) {
     healAmt -= consumed;
   }
   
-  //中毒：回血后扣3HP（每回合限2次）
-  const poisonBuff = getBuffStacks(target, BuffType.Poison) > 0;
-  if (poisonBuff && target.poisonTriggerCountThisTurn < 2) {
-    damage(target, target, DamageType.Real, 3);
-    target.poisonTriggerCountThisTurn += 1;
-  }
   //丛林被动
   if (target.equipment?.field?.name === '丛林') {
     if (getBuffStacks(target, BuffType.Wither) > 0 && !target.jungleHpUpTriggered) { 
       target.maxHp += 1;
       target.jungleHpUpTriggered = true;
     }
-    healAmt += 1; // 丛林场地加成：每次回血+1
+    heal(source, target, 1); // 丛林场地加成：每次回血+1
+  }
+  
+  //金护腿：溢出转护盾
+  if (healAmt > 0 && target.equipment?.equip?.name === '金护腿') {
+    const curShield = getBuffStacks(target, BuffType.Shield);
+    const add = Math.min(healAmt, 5 - curShield);
+    if (add > 0) applyEffectToPlayer(target, BuffType.Shield, add, undefined, 'golden_greaves', source.id);
   }
   //实际回血
-  const oldHp = target.hp;
   target.hp = Math.min(target.maxHp, target.hp + healAmt);
-  const overflow = (oldHp + healAmt) - target.maxHp;
-  //金护腿：溢出转护盾
-  if (overflow > 0 && target.equipment?.equip?.name === '金护腿') {
-    const curShield = getBuffStacks(target, BuffType.Shield);
-    const add = Math.min(overflow, 5 - curShield);
-    if (add > 0) consumeInPlace(target, BuffType.Shield, add);
-  }
 
+  //中毒：回血后扣3HP（每回合限2次）
+  if (getBuffStacks(target, BuffType.Poison) > 0 && target.poisonTriggerCountThisTurn < 2) {
+    damage(target, target, DamageType.Real, 3);
+    target.poisonTriggerCountThisTurn += 1;
+  }
   return healAmt;
 }
 export enum DamageType {
@@ -270,7 +268,7 @@ export function damage(source: PlayerState, target: PlayerState, type: DamageTyp
       consumeInPlace(source, BuffType.DamageBoost, dmgBoost);
     }
     //滴水石锥（物伤回血）
-    if (source.equipment?.weapon?.name === '滴水石锥') heal(source, 1);
+    if (source.equipment?.weapon?.name === '滴水石锥') heal(source, source, 1);
     //烈焰棒：标记触发条件
     if (source.equipment?.weapon?.name === '烈焰棒') {
       source.causePhysicalDamage = true;
@@ -414,19 +412,18 @@ export function applyCard(
       if (effect.duration && effect.duration > 0) {
         // 持续回血（治愈 buff，每回合回复）
         const target = isSelfTarget ? p : t;
-        const modified = applyEffectToPlayer(target, BuffType.Heal, effect.value, effect.duration, card.id);
-        heal(modified, effect.value);
-        if (isSelfTarget) p = modified; else t = modified;
+        applyEffectToPlayer(target, BuffType.Heal, effect.value, effect.duration, card.id, p.id);
+        heal(p, target, effect.value);
         msgs.push(`${cardName}使${targetLabel}获得持续回血${effect.value}点（${effect.duration}回合）`);
       } else {// 即时回血
         const target = isSelfTarget ? p : t;
-        heal(target, effect.value);
+        heal(p, target, effect.value);
       }
 
     } else if (effect.buffType === BuffType.HealAll) {
       // 全体回血（无论目标选择，双方都回血）
-      heal (p, effect.value);
-      heal (state.players[1 - state.currentTurnIndex], effect.value);
+      heal (p, p, effect.value);
+      heal (p, state.players[1 - state.currentTurnIndex], effect.value);
       msgs.push(`${cardName}为双方回复了${effect.value}点血量`);
     } else if (effect.buffType === BuffType.PhysicalDamage) {
       //物理伤害
@@ -437,9 +434,8 @@ export function applyCard(
       const target = isSelfTarget ? p : t;
       if (effect.duration && effect.duration > 0) {
         // 持续真伤（治愈 buff，每回合回复）
-        const modified = applyEffectToPlayer(target, BuffType.Damage, effect.value, effect.duration, card.id);
-        damage(p, modified, DamageType.Real, effect.value);
-        if (isSelfTarget) p = modified; else t = modified;
+        applyEffectToPlayer(target, BuffType.Damage, effect.value, effect.duration, card.id, p.id);
+        damage(target, target, DamageType.Real, effect.value);
         msgs.push(`${cardName}使${targetLabel}获得龙息${effect.value}点（${effect.duration}回合）`);
       } else damage(p, target, DamageType.Real, effect.value);
     } else if (effect.buffType === BuffType.RemoveWither) {
@@ -495,9 +491,9 @@ export function applyCard(
                 if (isSelfTarget) p = target; else t = target;
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
       } else {
-        const modified = applyEffectToPlayer(target, BuffType.Horde, 1, 2, card.id);
-        damage(modified, modified, DamageType.Physical, 4);
-        if (isSelfTarget) p = modified; else t = modified;
+        applyEffectToPlayer(target, BuffType.Horde, 1, 2, card.id, p.id);
+        damage(target, target, DamageType.Physical, 4);
+        if (isSelfTarget) p = target; else t = target;
         msgs.push(`${cardName}给予${targetLabel} 2回合尸潮（未丢弃<烟花>）`);
       }
 
@@ -559,17 +555,15 @@ export function applyCard(
     } else if (effect.buffType === BuffType.DamageOnDiscard) {
       // 丢弃伤害Debuff
       const target = isSelfTarget ? p : t;
-      const modified = applyEffectToPlayer(target, BuffType.DamageOnDiscard, effect.value, effect.duration, card.id);
-      if (isSelfTarget) p = modified; else t = modified;
+      applyEffectToPlayer(target, BuffType.DamageOnDiscard, effect.value, effect.duration, card.id, p.id);
       msgs.push(`${cardName}使${targetLabel}在丢弃牌时受到${effect.value}点伤害（持续${effect.duration}回合）`);
-
     } else if (effect.buffType === BuffType.HealPerBuff) {
       // 每存在一种状态回1点血
       const target = isSelfTarget ? p : t;
       // 统计不同的buff类型数量（排除特殊类型）
       const buffTypes = new Set(target.buffs.map(b => b.buffType));
       if (buffTypes.size > 0) {
-        heal(target, buffTypes.size);
+        heal(p, target, buffTypes.size);
         msgs.push(`${cardName}为${targetLabel}回复了${buffTypes.size}点血量（${buffTypes.size}种状态）`);
       } else {
         msgs.push(`${cardName}没有检测到任何状态，未回血`);
@@ -579,12 +573,7 @@ export function applyCard(
     } else {
       // 其他Buff效果
       const target = isSelfTarget ? p : t;
-      const modified = applyEffectToPlayer(target, effect.buffType, effect.value, effect.duration, card.id);
-      if (isSelfTarget) {
-        p = modified;
-      } else {
-        t = modified;
-      }
+      applyEffectToPlayer(target, effect.buffType, effect.value, effect.duration, card.id, p.id);
       msgs.push(`${cardName}对${targetLabel}施加了${effect.buffType}效果`);
     }
   }
@@ -632,13 +621,12 @@ export function applyCard(
       const randIdx = Math.floor(Math.random() * t.hand.length);
       const revealedCard = t.hand[randIdx];
       const w = revealedCard.weight || 0;
-      msgs.push(`侦测器揭示了「${revealedCard.name}」(权重:${w})，请输入你的猜测`);
       // 将待猜信息存到玩家状态中
       p.pendingGuessCardId = revealedCard.id;
       p.pendingGuessCardWeight = w;
       p.pendingGuessCardName = revealedCard.name;
     } else {
-      msgs.push('侦测器：目标手牌为空');
+      showMessage('侦测器：目标手牌为空', 'self');
     }
   }
 

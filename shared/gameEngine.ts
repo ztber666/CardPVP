@@ -139,10 +139,7 @@ export function startTurn(state: GameState): GameState {
   player.jungleHpUpTriggered = false;
   player.shieldOnDiscardCount = 0;
   player.playedCardTypesThisTurn = [];
-
-
-  // 处理回合开始 Buff
-  player = processTurnStartBuffs(player);
+  // 回合开始 buff 已在 endTurn 完整轮变更时处理
 
   // 摸牌
   player = drawCards(player, TURN_DRAW_COUNT);
@@ -198,8 +195,8 @@ export function endTurn(state: GameState): GameState {
   let s = deepClone(state);
 
   if (s.phase !== GamePhase.Playing) return s;
-
-  const name = s.players[s.currentTurnIndex].name;
+  const endingIdx = s.currentTurnIndex;
+  const name = s.players[endingIdx].name;
   s.log.push({
     turnNumber: s.turnNumber,
     message: `${name}行动结束`,
@@ -208,24 +205,37 @@ export function endTurn(state: GameState): GameState {
   // 切换玩家
   s.currentTurnIndex = 1 - s.currentTurnIndex;
 
-  // 持续时间节拍器：每两次结束出牌减1回合（一轮完整循环）
+  // 处理回合结束 Buff：双方身上来源是「结束出牌方对手」的 buff 持续-1
+  const opponentId = s.players[1 - endingIdx].id;
+  for (let i = 0; i < s.players.length; i++) {
+    s.players[i] = processTurnEndBuffs(s.players[i], opponentId);
+  }
+
+  // 持续时间节拍器：每两次结束出牌为完整一轮
   s.durationTickCounter = ((s.durationTickCounter || 0) + 1) % 2;
-  const shouldDecrement = s.durationTickCounter === 0;
-  if (shouldDecrement) {
-    // 处理回合结束 Buff
-    for (let i = 0; i < s.players.length; i++) {
-      s.players[i] = processTurnEndBuffs(s.players[i]);
-    }
-    //输出回合结束日志
+  if (s.durationTickCounter === 0) {
+    s.turnNumber += 1;
     s.log.push({
       turnNumber: s.turnNumber,
-      message: `${s.turnNumber}回合结束，进入第${s.turnNumber + 1}回合`,
+      message: `第${s.turnNumber}回合开始`,
       timestamp: Date.now(),
     });
 
-    s.turnNumber += 1;
+    // 完整轮结束时，下一位玩家的回合开始 buff 生效
+    s.players[s.currentTurnIndex] = processTurnStartBuffs(
+      s.players[s.currentTurnIndex],
+      getOpponentId(s, s.players[s.currentTurnIndex].id),
+    );
   }
 
+  // 检查胜负
+  for (const p of state.players) {
+    if (p.hp <= 0) {
+      state.phase = GamePhase.GameOver;
+      state.winnerId = state.players.find(pl => pl.id !== p.id)?.id;
+      break;
+    }
+  }
   return s;
 }
 
@@ -281,7 +291,7 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
 
   // 下界荒地：丢弃牌时获得1点护盾（每回合限2次）
   if (player.equipment?.field?.name === '下界荒地' && player.shieldOnDiscardCount < 2) {
-    player = applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id);
+    applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id, player.id);
     player.shieldOnDiscardCount += 1;
     s.log.push({
       turnNumber: s.turnNumber,
@@ -336,7 +346,7 @@ export function unequipCard(state: GameState, playerId: string, slot: string): G
 
   // 下界荒地：丢弃牌时获得1点护盾（每回合限2次）
   if (player.equipment?.field?.name === '下界荒地' && player.shieldOnDiscardCount < 2) {
-    player = applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id);
+    applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id, player.id);
     player.shieldOnDiscardCount += 1;
     s.log.push({
       turnNumber: s.turnNumber,
@@ -370,14 +380,7 @@ export function handleGuessWeight(state: GameState, playerId: string, guessWeigh
     ? `${player.name}猜中了权重(${guessWeight})！下次物理伤害×1.5`
     : `${player.name}猜错了权重(${guessWeight})，正确答案是${player.pendingGuessCardWeight}`;
 
-  if (correct) {
-    player.buffs.push({
-      buffType: BuffType.DamageBoost,
-      value: 1,
-      stacks: 1,
-      sourceCardId: 'detector',
-    });
-  }
+  if (correct) applyEffectToPlayer(player, BuffType.DamageBoost, 1, 1, 'detector', player.id);
 
   player.pendingGuessCardId = '';
   player.pendingGuessCardWeight = 0;

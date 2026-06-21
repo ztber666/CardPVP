@@ -1,4 +1,4 @@
-import { consumeInPlace, damage, DamageType, heal } from './cardEngine';
+import {  damage, DamageType, heal } from './cardEngine';
 import { PlayerState, ActiveBuff, BuffType } from './types';
 
 /**
@@ -16,9 +16,9 @@ export function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
-export function getBuffStacks(player: PlayerState, type: BuffType): number {
+export function getBuffStacks(player: PlayerState, type: BuffType, sourcePlayerId?: string): number {
   return player.buffs
-    .filter(b => b.buffType === type)
+    .filter(b => b.buffType === type && (!sourcePlayerId || b.sourcePlayerId === sourcePlayerId))
     .reduce((sum, b) => sum + b.stacks, 0);
 }
 
@@ -26,158 +26,79 @@ export function findBuff(player: PlayerState, type: BuffType): ActiveBuff | unde
   return player.buffs.find(b => b.buffType === type);
 }
 
-function addBuff(
-  player: PlayerState,
-  type: BuffType,
-  value: number,
-  stacks: number,
-  duration: number | undefined,
-  sourceCardId: string
-): PlayerState {
-  const p = deepClonePlayer(player);
-  // 非正数层数/强度时跳过
-  if (stacks <= 0 || value <= 0) return p;
-
-  // 同类型且剩余回合数相同 → 合并层数
-  const existing = p.buffs.find(b => b.buffType === type && b.remainingTurns === duration);
-  if (existing) {
-    existing.stacks += stacks;
-    existing.value = Math.max(existing.value, value);
-    return p;
-  }
-
-  p.buffs.push({
-    buffType: type,
-    value,
-    stacks,
-    remainingTurns: duration,
-    sourceCardId,
-  });
-  return p;
-}
-
-export function consumeBuffStacks(player: PlayerState, type: BuffType, amount: number): PlayerState {
-  const p = deepClonePlayer(player);
-  let remaining = amount;
-  p.buffs = p.buffs.filter(b => {
-    if (b.buffType !== type) return true;
-    if (remaining <= 0) return true;
-    const consumed = Math.min(remaining, b.stacks);
-    b.stacks -= consumed;
-    remaining -= consumed;
-    return b.stacks > 0;
-  });
-  return p;
-}
-
-function removeBuff(player: PlayerState, type: BuffType): PlayerState {
-  const p = deepClonePlayer(player);
-  p.buffs = p.buffs.filter(b => b.buffType !== type);
-  return p;
-}
-
-
 // ===== 应用效果到玩家 =====
 export function applyEffectToPlayer(
   player: PlayerState,
   buffType: BuffType,
   value: number,
   duration: number | undefined,
-  sourceCardId: string
-): PlayerState {
-  switch (buffType) {
-    case BuffType.Strength:
-      return addBuff(player, BuffType.Strength, value, value, duration, sourceCardId);
-    case BuffType.Weakness:
-      return addBuff(player, BuffType.Weakness, value, value, duration, sourceCardId);
-    case BuffType.Resistance:
-      return addBuff(player, BuffType.Resistance, value, value, duration, sourceCardId);
-    case BuffType.Vulnerability:
-      return addBuff(player, BuffType.Vulnerability, value, value, duration, sourceCardId);
-    case BuffType.Heal:
-      return addBuff(player, BuffType.Heal, value, value, duration, sourceCardId);
-    case BuffType.Wither:
-      return addBuff(player, BuffType.Wither, value, value, duration, sourceCardId);
-    case BuffType.Shield:
-      return addBuff(player, BuffType.Shield, value, value, duration, sourceCardId);
-    case BuffType.FireResist:
-      return addBuff(player, BuffType.FireResist, value, value, duration, sourceCardId);
-    case BuffType.Poison:
-      return addBuff(player, BuffType.Poison, value, value, duration, sourceCardId);
-    case BuffType.FireVuln:
-      return addBuff(player, BuffType.FireVuln, value, value, duration, sourceCardId);
-    case BuffType.HealBoost:
-      return addBuff(player, BuffType.HealBoost, value, value, duration, sourceCardId);
-    case BuffType.LockAction:
-      return addBuff(player, BuffType.LockAction, value, value, duration, sourceCardId);
-    case BuffType.LockStrategy:
-      return addBuff(player, BuffType.LockStrategy, value, value, duration, sourceCardId);
-    case BuffType.WitherOnDraw:
-      return addBuff(player, BuffType.WitherOnDraw, value, value, duration, sourceCardId);
-    case BuffType.DamageBoost:
-      return addBuff(player, BuffType.DamageBoost, value, value, duration, sourceCardId);
-    case BuffType.Damage:
-      return addBuff(player, BuffType.Damage, value, value, duration, sourceCardId);
-    case BuffType.DamageOnDiscard:
-      return addBuff(player, BuffType.DamageOnDiscard, value, value, duration, sourceCardId);
-    case BuffType.HealPerBuff:
-      return player;
-    case BuffType.Horde:
-      return addBuff(player, BuffType.Horde, value, value, duration, sourceCardId);
-    case BuffType.Blight:
-      return addBuff(player, BuffType.Blight, value, value, duration, sourceCardId);
-    case BuffType.Block:
-      return addBuff(player, BuffType.Block, value, value, duration, sourceCardId);
-    default:
-      return player;
+  sourceCardId: string,
+  sourcePlayerId?: string,
+) {
+  const stacks = value; // 每次应用效果时，value即为层数/强度
+  // 非正数层数/强度时跳过
+  if (stacks <= 0 || value <= 0) return player;
+
+  // 同类型且剩余回合数相同 → 合并层数
+  const existing = player.buffs.find(b => b.buffType === buffType && b.remainingTurns === duration);
+  if (existing) {
+    existing.stacks += stacks;
+    existing.value = Math.max(existing.value, value);
+    return player;
   }
+
+  player.buffs.push({
+    buffType: buffType,
+    value,
+    stacks,
+    remainingTurns: duration,
+    sourceCardId,
+    sourcePlayerId,
+  });
 }
 
 // ===== 回合开始处理 =====
-export function processTurnStartBuffs(player: PlayerState): PlayerState {
+export function processTurnStartBuffs(player: PlayerState, opponentId: string): PlayerState {
   let p = deepClonePlayer(player);
 
-  // 重置回合计数器
+  // 重置中毒回合计数器
   p.poisonTriggerCountThisTurn = 0;
 
-  // 龙息（buffDamage）：每回合开始时造成 value 点真实伤害，duration控制持续回合数
-  const damageStacks = getBuffStacks(p, BuffType.Damage);
+  // 龙息 / 尸潮：来自对手的 debuff，用 opponentId 过滤
+  const damageStacks = getBuffStacks(p, BuffType.Damage, opponentId);
   if(damageStacks > 0) damage(p, p, DamageType.Real, damageStacks);
-  // 治愈（buff5）：每回合开始时回复 value 点血量，duration控制持续回合数
-  const healStacks = getBuffStacks(p, BuffType.Heal)
-  if(healStacks > 0) heal(p, healStacks);
-  // 不在这里过滤 Heal buff——由回合结束的 duration -1 机制处理移除
-
-  // 尸潮：对附着玩家造成4点物理伤害
-  const hordeStacks = getBuffStacks(p, BuffType.Horde)
+  const hordeStacks = getBuffStacks(p, BuffType.Horde, opponentId);
   if(hordeStacks > 0) damage(p, p, DamageType.Physical, 4);
+  // 治愈：不按来源过滤（可以是自己或对手给的）
+  const healStacks = getBuffStacks(p, BuffType.Heal);
+  if(healStacks > 0) heal(p, p, healStacks);
 
   //钻石胸甲：每回合开始时获得1层抗性
   if(player.equipment?.equip?.name === '钻石胸甲') {
-    p = applyEffectToPlayer(p, BuffType.Resistance, 1, 1, 'card_23');
+    applyEffectToPlayer(p, BuffType.Resistance, 1, 1, 'card_23', p.id);
   }
 
   //海龟壳：每回合开始时获得抗火
   if(player.equipment?.equip?.name === '海龟壳') {
-    p = applyEffectToPlayer(p, BuffType.FireResist, 1, 1, 'card_26');
+    applyEffectToPlayer(p, BuffType.FireResist, 1, 1, 'card_26', p.id);
   }
 
   //三叉戟：每回合开始时获得1层力量
   if(player.equipment?.weapon?.name === '三叉戟') {
-    p = applyEffectToPlayer(p, BuffType.Strength, 1, 1, 'card_27');
+    applyEffectToPlayer(p, BuffType.Strength, 1, 1, 'card_27', p.id);
   }
 
   return p;
 }
 
 // ===== 回合结束处理 =====
-export function processTurnEndBuffs(player: PlayerState): PlayerState {
+export function processTurnEndBuffs(player: PlayerState, opponentId: string): PlayerState {
   let p = deepClonePlayer(player);
 
   p.buffs = p.buffs
     .map(buff => {
       const b = { ...buff };
-      if (b.remainingTurns !== undefined) {
+      if (b.remainingTurns !== undefined && b.sourcePlayerId === opponentId) {
         b.remainingTurns -= 1;
       }
       return b;

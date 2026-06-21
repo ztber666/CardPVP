@@ -79,6 +79,7 @@ export interface ActiveBuff {
   stacks: number;
   remainingTurns?: number;
   sourceCardId: string;
+  sourcePlayerId?: string;
 }
 
 // ===== 玩家运行时状态 =====
