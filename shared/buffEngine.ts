@@ -140,6 +140,9 @@ export function processTurnStartBuffs(player: PlayerState): PlayerState {
   // 重置回合计数器
   p.poisonTriggerCountThisTurn = 0;
 
+  // 龙息（buffDamage）：每回合开始时造成 value 点真实伤害，duration控制持续回合数
+  const damageStacks = getBuffStacks(p, BuffType.Damage);
+  if(damageStacks > 0) damage(p, p, DamageType.Real, damageStacks);
   // 治愈（buff5）：每回合开始时回复 value 点血量，duration控制持续回合数
   const healStacks = getBuffStacks(p, BuffType.Heal)
   if(healStacks > 0) heal(p, healStacks);

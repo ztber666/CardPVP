@@ -46,8 +46,6 @@ export function createGame(
         draftPlayerPick: 0,
         draftPickCount: 0,
         draftPickedBy: {},
-        usedPhysicalHealThisTurn: 0,
-        usedFireHealThisTurn: 0,
         jungleHpUpTriggered: false,
         pendingBucketChoice: '',
         pendingEquipChoice: '',
@@ -78,8 +76,6 @@ export function createGame(
         draftPlayerPick: 0,
         draftPickCount: 0,
         draftPickedBy: {},
-        usedPhysicalHealThisTurn: 0,
-        usedFireHealThisTurn: 0,
         jungleHpUpTriggered: false,
         pendingBucketChoice: '',
         pendingEquipChoice: '',
@@ -105,6 +101,8 @@ export function initGame(state: GameState): GameState {
     s.players[i] = drawCards(s.players[i], INITIAL_DRAW_COUNT);
   }
 
+  //先手玩家回合摸牌
+  s.players[s.currentTurnIndex] = drawCards(s.players[s.currentTurnIndex], TURN_DRAW_COUNT);
   return s;
 }
 

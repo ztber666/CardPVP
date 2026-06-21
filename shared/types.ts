@@ -117,8 +117,6 @@ export interface PlayerState {
   draftPlayerPick: number;        // 当前轮到谁选(0=当前玩家, 1=对手)
   draftPickCount: number;         // 已选次数
   draftPickedBy: Record<number, string>; // 运输矿车：已选标记 {卡牌索引→玩家名}
-  usedPhysicalHealThisTurn: number; // 滴水石锥：物伤回血已触发次数
-  usedFireHealThisTurn: number;     // 滴水石锥：火焰回血已触发次数
   jungleHpUpTriggered: boolean;     // 丛林：血量上限+1已触发
   pendingBucketChoice: string;       // 水桶：待选封锁类型(action/strategy)
   pendingEquipChoice: string;        // 诡异钓竿：待选装备槽位

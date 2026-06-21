@@ -180,8 +180,10 @@ export interface ApplyCardResult {
 export function heal(target: PlayerState, number: number) {
   let healAmt = Math.max(0, number);
   //治愈增强
-  const healBoostStacks = getBuffStacks(target, BuffType.HealBoost);
-  if(healBoostStacks > 0) healAmt += healBoostStacks;
+  healAmt += getBuffStacks(target, BuffType.HealBoost);
+  //枯萎：减少层数等量回血但不消耗层数
+  healAmt -= getBuffStacks(target, BuffType.Blight);
+
   //凋零：消耗1层，减少1点回血
   const witherStacks = getBuffStacks(target, BuffType.Wither);
   if (witherStacks > 0 && target.equipment?.equip?.name !== "钻石胸甲") {
@@ -189,10 +191,20 @@ export function heal(target: PlayerState, number: number) {
     if(consumed > 0) consumeInPlace(target, BuffType.Wither, consumed);
     healAmt -= consumed;
   }
-  //枯萎：减少层数等量回血但不消耗层数
-  const blightStacks = getBuffStacks(target, BuffType.Blight);
-  if (blightStacks > 0) {
-    healAmt = Math.max(0, healAmt - blightStacks);
+  
+  //中毒：回血后扣3HP（每回合限2次）
+  const poisonBuff = getBuffStacks(target, BuffType.Poison) > 0;
+  if (poisonBuff && target.poisonTriggerCountThisTurn < 2) {
+    damage(target, target, DamageType.Real, 3);
+    target.poisonTriggerCountThisTurn += 1;
+  }
+  //丛林被动
+  if (target.equipment?.field?.name === '丛林') {
+    if (getBuffStacks(target, BuffType.Wither) > 0 && !target.jungleHpUpTriggered) { 
+      target.maxHp += 1;
+      target.jungleHpUpTriggered = true;
+    }
+    healAmt += 1; // 丛林场地加成：每次回血+1
   }
   //实际回血
   const oldHp = target.hp;
@@ -204,17 +216,7 @@ export function heal(target: PlayerState, number: number) {
     const add = Math.min(overflow, 5 - curShield);
     if (add > 0) consumeInPlace(target, BuffType.Shield, add);
   }
-  //中毒：回血后扣3HP（每回合限2次）
-  const poisonBuff = findBuff(target, BuffType.Poison);
-  if (poisonBuff && target.poisonTriggerCountThisTurn < 2) {
-    target.hp = Math.max(0, target.hp - 3);
-    target.poisonTriggerCountThisTurn += 1;
-  }
-  //丛林被动
-  if (target.equipment?.field?.name === '丛林' && !target.jungleHpUpTriggered) {
-    const hasW = target.buffs.some(b => b.buffType === BuffType.Wither && b.stacks > 0);
-    if (hasW) { target.maxHp += 1; target.jungleHpUpTriggered = true; }
-  }
+
   return healAmt;
 }
 export enum DamageType {
@@ -376,7 +378,7 @@ export function applyCard(
   const prevCardCostType = p.lastPlayedCardCostType;
 
   // 更新上一张牌为当前这张（玻璃板本身不覆盖）
-  if (card.name !== '玻璃板') {
+  if (card.name !== '玻璃板' && card.name !== '烈焰粉') {
     p.lastPlayedCardDef.push(card);
     p.lastPlayedCardName = card.name;
     p.lastPlayedCardEffects = card.effects.map(e => ({ ...e }));
@@ -424,9 +426,8 @@ export function applyCard(
     } else if (effect.buffType === BuffType.HealAll) {
       // 全体回血（无论目标选择，双方都回血）
       heal (p, effect.value);
-      heal (t, effect.value);
+      heal (state.players[1 - state.currentTurnIndex], effect.value);
       msgs.push(`${cardName}为双方回复了${effect.value}点血量`);
-
     } else if (effect.buffType === BuffType.PhysicalDamage) {
       //物理伤害
       const target = isSelfTarget ? p : t;
@@ -437,10 +438,10 @@ export function applyCard(
       if (effect.duration && effect.duration > 0) {
         // 持续真伤（治愈 buff，每回合回复）
         const modified = applyEffectToPlayer(target, BuffType.Damage, effect.value, effect.duration, card.id);
+        damage(p, modified, DamageType.Real, effect.value);
         if (isSelfTarget) p = modified; else t = modified;
         msgs.push(`${cardName}使${targetLabel}获得龙息${effect.value}点（${effect.duration}回合）`);
-      }
-      damage(p, target, DamageType.Real, effect.value);
+      } else damage(p, target, DamageType.Real, effect.value);
     } else if (effect.buffType === BuffType.RemoveWither) {
       // 移除凋零
       const target = isSelfTarget ? p : t;
@@ -495,7 +496,7 @@ export function applyCard(
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
       } else {
         const modified = applyEffectToPlayer(target, BuffType.Horde, 1, 2, card.id);
-        damage(p, p, DamageType.Physical, 4);
+        damage(modified, modified, DamageType.Physical, 4);
         if (isSelfTarget) p = modified; else t = modified;
         msgs.push(`${cardName}给予${targetLabel} 2回合尸潮（未丢弃<烟花>）`);
       }

@@ -457,7 +457,7 @@ export default function Game() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setShowGuessDialog(false)}>
           <div className="bg-card-bg border border-card-border rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-text-primary mb-2">🔍 侦测器</h3>
-            {me?.pendingGuessCardName && <p className="text-sm text-accent-attack font-semibold mb-1">目标卡牌：{me.pendingGuessCardName}</p>}
+            {me?.pendingGuessCardName && <p className="text-sm text-accent-attack font-semibold mb-1">随机选择了一张卡牌</p>}
             <p className="text-sm text-text-secondary mb-4">猜测这张牌在牌组中的权重：</p>
             <input
               type="number"

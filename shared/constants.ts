@@ -123,7 +123,7 @@ export const CARDS: CardTemplate[] = [
     id: 'card_10', name: '刷怪笼', icon: '4,1', weight: 3,
     costType: CostType.Action,
     effects: [eff(BuffType.ConditionalDiscard, 4)],
-    description: '使目标立即丢弃一张<烟花>，否则受到4点物理伤害',
+    description: '使目标立即丢弃一张<烟花>，否则受到4点物理伤害[*2]',
   },
 
   // ===== 11-20 策略牌 =====
@@ -136,8 +136,8 @@ export const CARDS: CardTemplate[] = [
   {
     id: 'card_12', name: '发光浆果', icon: '5,2', weight: 4,
     costType: CostType.Strategy,
-    effects: [eff(BuffType.HealBoost, 1, 2)],
-    description: '治愈增强+1层[*2]',
+    effects: [eff(BuffType.HealBoost, 2, 2)],
+    description: '治愈增强+2层[*2]',
   },
   {
     id: 'card_13', name: '水桶', icon: '5,6,2', weight: 3,
@@ -149,10 +149,10 @@ export const CARDS: CardTemplate[] = [
     id: 'card_14', name: '枯萎的灌木', icon: '6,2', weight: 3,
     costType: CostType.Strategy,
     effects: [
-      eff(BuffType.FireVuln, 2, 2),  // 火焰伤害+1，持续2回合
+      eff(BuffType.FireVuln, 2, 2),  // 火焰伤害+2，持续2回合
       eff(BuffType.Blight, 2, 2),    // 回血少回2点，持续2回合
     ],
-    description: '受到的火焰伤害+1[*2] / 回血时少回1点血[*2]',
+    description: '受到的火焰伤害+2[*2] / 回血时少回2点血[*2]',
   },
   {
     id: 'card_15', name: '合金碎片', icon: '5,2', weight: 3,
@@ -308,13 +308,13 @@ export const CARDS: CardTemplate[] = [
     id: 'card_39', name: '烈焰粉', icon: '11', weight: 4,
     costType: CostType.Counter,
     effects: [],
-    description: '造成物理伤害后可丢弃一张手牌来额外造成2点火焰伤害',
+    description: '造成物理伤害打出可额外造成2点火焰伤害',
   },
   {
     id: 'card_40', name: '滴水石锥', icon: '9', weight: 1,
     costType: CostType.Weapon,
     effects: [],
-    description: '造成物理伤害时回1点血(各限1次/回合)',
+    description: '造成物理伤害时回1点血',
   },
   {
     id: 'card_41', name: '运输矿车', icon: '7,2', weight: 3,
