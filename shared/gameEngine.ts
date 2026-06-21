@@ -36,7 +36,7 @@ export function createGame(
         lastPlayedCardName: '',
         lastPlayedCardEffects: [],
         lastPlayedCardCostType: 'action' as any,
-        causePhyiscalDamage: false,
+        causePhysicalDamage: false,
         canEnchantDiscard: false,
         pendingGuessCardId: '',
         pendingGuessCardWeight: 0,
@@ -51,7 +51,6 @@ export function createGame(
         jungleHpUpTriggered: false,
         pendingBucketChoice: '',
         pendingEquipChoice: '',
-        durationTickCounter: 0,
       },
       {
         id: p2Id, name: p2Name,
@@ -70,7 +69,7 @@ export function createGame(
         lastPlayedCardName: '',
         lastPlayedCardEffects: [],
         lastPlayedCardCostType: 'action' as any,
-        causePhyiscalDamage: false,
+        causePhysicalDamage: false,
         canEnchantDiscard: false,
         pendingGuessCardId: '',
         pendingGuessCardWeight: 0,
@@ -84,11 +83,11 @@ export function createGame(
         jungleHpUpTriggered: false,
         pendingBucketChoice: '',
         pendingEquipChoice: '',
-        durationTickCounter: 0,
       },
     ],
     currentTurnIndex: 0,
     turnNumber: 1,
+    durationTickCounter: 0,
     phase: GamePhase.Playing,
     log: [],
   };
@@ -127,7 +126,6 @@ function refreshEquipment(player: PlayerState): PlayerState {
 // ===== 开始新回合 =====
 export function startTurn(state: GameState): GameState {
   const s = deepClone(state);
-  s.turnNumber += 1;
   s.phase = GamePhase.Playing;
 
   let player = s.players[s.currentTurnIndex];
@@ -203,19 +201,32 @@ export function endTurn(state: GameState): GameState {
 
   if (s.phase !== GamePhase.Playing) return s;
 
-  // 处理回合结束 Buff
-  for (let i = 0; i < s.players.length; i++) {
-    s.players[i] = processTurnEndBuffs(s.players[i]);
-  }
-
+  const name = s.players[s.currentTurnIndex].name;
+  s.log.push({
+    turnNumber: s.turnNumber,
+    message: `${name}行动结束`,
+    timestamp: Date.now(),
+  });
   // 切换玩家
   s.currentTurnIndex = 1 - s.currentTurnIndex;
 
-  s.log.push({
-    turnNumber: s.turnNumber,
-    message: `回合 ${s.turnNumber} 结束`,
-    timestamp: Date.now(),
-  });
+  // 持续时间节拍器：每两次结束出牌减1回合（一轮完整循环）
+  s.durationTickCounter = ((s.durationTickCounter || 0) + 1) % 2;
+  const shouldDecrement = s.durationTickCounter === 0;
+  if (shouldDecrement) {
+    // 处理回合结束 Buff
+    for (let i = 0; i < s.players.length; i++) {
+      s.players[i] = processTurnEndBuffs(s.players[i]);
+    }
+    //输出回合结束日志
+    s.log.push({
+      turnNumber: s.turnNumber,
+      message: `${s.turnNumber}回合结束，进入第${s.turnNumber + 1}回合`,
+      timestamp: Date.now(),
+    });
+
+    s.turnNumber += 1;
+  }
 
   return s;
 }
@@ -249,8 +260,8 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
   player.discardPile.push(card);
 
   //烈焰棒
-  if(player.equipment?.weapon?.name === '烈焰棒' && player.causePhyiscalDamage) {
-    player.causePhyiscalDamage = false;
+  if(player.equipment?.weapon?.name === '烈焰棒' && player.causePhysicalDamage) {
+    player.causePhysicalDamage = false;
     damage(player, target, DamageType.Fire, 2);
     s.log.push({
       turnNumber: s.turnNumber,
@@ -489,10 +500,10 @@ export function handleBucketChoice(state: GameState, playerId: string, lockType:
   const oppIdx = 1 - idx;
   const opponent = s.players[oppIdx];
   if (lockType === 'action') {
-    opponent.buffs.push({ buffType: BuffType.LockAction, value: 1, stacks: 1, remainingTurns: 2, sourceCardId: 'bucket' });
+    opponent.buffs.push({ buffType: BuffType.LockAction, value: 1, stacks: 1, remainingTurns: 1, sourceCardId: 'bucket' });
     s.log.push({ turnNumber: s.turnNumber, message: `${player.name}封锁了对手的行动牌`, timestamp: Date.now() });
   } else if (lockType === 'strategy') {
-    opponent.buffs.push({ buffType: BuffType.LockStrategy, value: 1, stacks: 1, remainingTurns: 2, sourceCardId: 'bucket' });
+    opponent.buffs.push({ buffType: BuffType.LockStrategy, value: 1, stacks: 1, remainingTurns: 1, sourceCardId: 'bucket' });
     s.log.push({ turnNumber: s.turnNumber, message: `${player.name}封锁了对手的锦囊牌`, timestamp: Date.now() });
   }
 

@@ -1,13 +1,6 @@
 import { useState } from 'react';
 import { ActiveBuff, BUFF_NAMES, BuffType } from '@shared/types';
-
-// BuffType → assets/buff/ 图片编号
-const BUFF_ICON_MAP: Record<string, number> = {
-  strength: 1, weakness: 2, resistance: 3, vuln: 4, heal: 5,
-  wither: 6, shield: 7, fireResist: 8, poison: 9, fireVuln: 10,
-  charge: 11, healBoost: 12, lockAction: 13, lockStrategy: 14, fireDamage: 0,
-  horde: 0, blight: 0, block: 0,
-};
+import { BUFF_DESCRIPTIONS, BUFF_ICON_MAP } from './BuffCollection';
 
 const BUFF_COLORS: Record<string, string> = {
   strength: 'bg-red-100 border-red-200', weakness: 'bg-purple-100 border-purple-200',
@@ -21,24 +14,6 @@ const BUFF_COLORS: Record<string, string> = {
   block: 'bg-indigo-100 border-indigo-200',
 };
 
-const BUFF_DESCRIPTIONS: Record<string, string> = {
-  [BuffType.Strength]: '对他人造成的物理伤害增加，每层 +1 伤害。',
-  [BuffType.Weakness]: '对他人造成的物理伤害减少，每层 -1 伤害。',
-  [BuffType.Resistance]: '受到的物理伤害减少，每层抵消 1 点伤害。',
-  [BuffType.Vulnerability]: '受到的物理伤害增加，每层 +1 受伤。',
-  [BuffType.Heal]: '回复 n 点血量。',
-  [BuffType.Wither]: '回血时消耗 1 层凋零，减少 1 点回血。',
-  [BuffType.Shield]: '受到物理/火焰伤害时消耗 1 层，抵消 1 点伤害。',
-  [BuffType.FireResist]: '受到的火焰伤害减少，每层抵消 1 点火焰伤害。',
-  [BuffType.Poison]: '回血后减少 3 点血量（每回合限 2 次）。',
-  [BuffType.FireVuln]: '受到火焰伤害时消耗 1 层，使火焰伤害 +1。',
-  [BuffType.HealBoost]: '本回合回血时额外多回层数等量的血量。',
-  [BuffType.LockAction]: '下回合无法使用行动牌。',
-  [BuffType.LockStrategy]: '下回合无法使用锦囊牌。',
-  [BuffType.Horde]: '获得时和回合开始时受到等量物理伤害。',
-  [BuffType.Blight]: '回血时减少等量回复量，不消耗层数。',
-  [BuffType.Block]: '下次受到物理伤害时减5点，抵挡后消失。',
-};
 
 interface Props {
   buff: ActiveBuff;

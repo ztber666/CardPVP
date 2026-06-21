@@ -149,6 +149,21 @@ export function processTurnStartBuffs(player: PlayerState): PlayerState {
   const hordeStacks = getBuffStacks(p, BuffType.Horde)
   if(hordeStacks > 0) damage(p, p, DamageType.Physical, 4);
 
+  //钻石胸甲：每回合开始时获得1层抗性
+  if(player.equipment?.equip?.name === '钻石胸甲') {
+    p = applyEffectToPlayer(p, BuffType.Resistance, 1, 1, 'card_23');
+  }
+
+  //海龟壳：每回合开始时获得抗火
+  if(player.equipment?.equip?.name === '海龟壳') {
+    p = applyEffectToPlayer(p, BuffType.FireResist, 1, 1, 'card_26');
+  }
+
+  //三叉戟：每回合开始时获得1层力量
+  if(player.equipment?.weapon?.name === '三叉戟') {
+    p = applyEffectToPlayer(p, BuffType.Strength, 1, 1, 'card_27');
+  }
+
   return p;
 }
 
@@ -156,13 +171,10 @@ export function processTurnStartBuffs(player: PlayerState): PlayerState {
 export function processTurnEndBuffs(player: PlayerState): PlayerState {
   let p = deepClonePlayer(player);
 
-  // 持续时间节拍器：每两次结束出牌减1回合（一轮完整循环）
-  p.durationTickCounter = ((p.durationTickCounter || 0) + 1) % 2;
-  const shouldDecrement = p.durationTickCounter === 0;
   p.buffs = p.buffs
     .map(buff => {
       const b = { ...buff };
-      if (shouldDecrement && b.remainingTurns !== undefined) {
+      if (b.remainingTurns !== undefined) {
         b.remainingTurns -= 1;
       }
       return b;

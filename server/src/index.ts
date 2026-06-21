@@ -24,7 +24,6 @@ import {
   handleEquipChoiceAction,
   handleBrewConversionAction,
   handleDebugDrawCard,
-  handleBlazeDiscardAction,
 } from './rooms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -86,8 +85,13 @@ io.on('connection', (socket) => {
 
   // ===== 创建房间 =====
   socket.on('create_room', (playerName: string, callback) => {
-    console.log(`[创建房间] ${socket.id} 玩家名: ${playerName}`);
-    const { roomId, playerId } = createRoom(socket.id, playerName || `玩家${socket.id.slice(0, 4)}`);
+    console.log(`[创建房间] ${socket.id} 玩家名: ${playerName}`); 
+    const createResult = createRoom(socket.id, playerName || `玩家${socket.id.slice(0, 4)}`);
+    if (!createResult) {
+      callback({ success: false, error: '创建房间失败' });
+      return;
+    }
+    const { roomId, playerId } = createResult;
     socket.join(roomId);
     callback({ roomId, playerId });
     console.log(`[创建成功] 房间: ${roomId}, 玩家: ${playerId}`);

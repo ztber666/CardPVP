@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { BUFF_NAMES, BuffType } from '@shared/types';
 
 // Buff 效果描述
-const BUFF_DESCRIPTIONS: Record<string, string> = {
+export const BUFF_DESCRIPTIONS: Record<string, string> = {
+  [BuffType.Damage]: '使附着对象每回合受到 n 点真伤。',
+  [BuffType.FireResist]: '使附着对象免疫火焰伤害。',
+  [BuffType.DamageBoost]: '下次造成物理伤害时伤害*1.5 (向上取整)。',
+  [BuffType.WitherOnDraw]: '附着对象下回合每获得1张牌+1层凋零',
+  [BuffType.DamageOnDiscard]: '附着对象丢弃牌时收到 n 点真伤。',
   [BuffType.Strength]: '使附着对象对他人造成的物理伤害增加 n 点。每层 +1 伤害。',
   [BuffType.Weakness]: '使附着对象对他人造成的物理伤害减少 n 点。每层 -1 伤害。',
   [BuffType.Resistance]: '使附着对象受到的物理伤害减少 n 点。每层抵消 1 点伤害。',
@@ -10,7 +15,6 @@ const BUFF_DESCRIPTIONS: Record<string, string> = {
   [BuffType.Heal]: '回复附着对象 n 点血量。',
   [BuffType.Wither]: '附着对象回血时消耗 1 层凋零并减少 1 点回血。',
   [BuffType.Shield]: '附着对象受到物理伤害或火焰伤害时消耗 1 层护盾抵消 1 点伤害。',
-  [BuffType.FireResist]: '使附着对象受到的火焰伤害减少 n 点。每层抵消 1 点火焰伤害。',
   [BuffType.Poison]: '附着对象回血后减少 3 点血量（每回合限 2 次）。',
   [BuffType.FireVuln]: '附着对象受到火焰伤害时消耗 1 层，使火焰伤害 +1。',
   [BuffType.HealBoost]: '本回合回血时额外多回相当于层数的血量。',
@@ -22,17 +26,21 @@ const BUFF_DESCRIPTIONS: Record<string, string> = {
 };
 
 // Buff 与 BuffType 编号映射
-const BUFF_ICON_MAP: Record<string, number> = {
+export const BUFF_ICON_MAP: Record<string, number> = {
   strength: 1, weakness: 2, resistance: 3, vuln: 4, heal: 5,
   wither: 6, shield: 7, fireResist: 8, poison: 9, fireVuln: 10,
-  charge: 11, healBoost: 12, lockAction: 13, lockStrategy: 14, fireDamage: 0,
+  healBoost: 11, lockAction: 12, lockStrategy: 13, damage: 14,
+  witherOnDraw: 15, damageBoost: 16, horde: 17, blight: 18, block: 19,
+  damageOnDiscard: 20
 };
 
-// 忽略特殊效果类型（不显示在图鉴中）
+// 忽略特殊效果类型（不显示在图鉴中）`
 const SKIP_TYPES = [
   BuffType.RemoveWither, BuffType.ReduceDuration,
   BuffType.ReduceMaxHp, BuffType.IncreaseMaxHp,
-  BuffType.ConditionalDiscard, BuffType.Damage,
+  BuffType.ConditionalDiscard, BuffType.PhysicalDamage, BuffType.DrawCard,
+  BuffType.StealCard, BuffType.RevealHand, BuffType.ForceDiscardEquip,
+  BuffType.HealPerBuff, BuffType.HealAll,
 ];
 
 export default function BuffCollection({ onClose }: { onClose: () => void }) {

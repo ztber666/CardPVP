@@ -100,7 +100,7 @@ export function canPlayCard(player: PlayerState, card: CardDef, targetSelf?: boo
   }
 
   //烈焰粉：不满足条件无法打出
-  if (card.name === '烈焰粉' && !player.canEnchantDiscard) {
+  if (card.name === '烈焰粉' && !player.causePhysicalDamage) {
     return { valid: false, reason: '上一张未造成物理伤害，无法打出烈焰粉' };
   }
 
@@ -271,12 +271,12 @@ export function damage(source: PlayerState, target: PlayerState, type: DamageTyp
     if (source.equipment?.weapon?.name === '滴水石锥') heal(source, 1);
     //烈焰棒：标记触发条件
     if (source.equipment?.weapon?.name === '烈焰棒') {
-      source.causePhyiscalDamage = true;
+      source.causePhysicalDamage = true;
       showMessage('丢弃一张牌可造成两点火焰伤害', "self")
     }
     //烈焰粉提示
     if(source.hand.filter(card => card.name === '烈焰粉').length > 0) {
-      source.causePhyiscalDamage = true;
+      source.causePhysicalDamage = true;
       showMessage('打出烈焰粉可额外造成2点火焰伤害', "self");
     }
     
@@ -384,7 +384,7 @@ export function applyCard(
   }
 
   //处理烈焰粉判断逻辑
-  if(card.name !== '烈焰粉' && p.causePhyiscalDamage) p.causePhyiscalDamage = false;
+  if(card.name !== '烈焰粉' && p.causePhysicalDamage) p.causePhysicalDamage = false;
 
   // 处理装备/武器/场地替换（始终作用在卡牌使用者身上）
   if (card.costType === CostType.Equip ||
@@ -439,9 +439,8 @@ export function applyCard(
         const modified = applyEffectToPlayer(target, BuffType.Damage, effect.value, effect.duration, card.id);
         if (isSelfTarget) p = modified; else t = modified;
         msgs.push(`${cardName}使${targetLabel}获得龙息${effect.value}点（${effect.duration}回合）`);
-      } else {
-        damage(p, target, DamageType.Real, effect.value);
       }
+      damage(p, target, DamageType.Real, effect.value);
     } else if (effect.buffType === BuffType.RemoveWither) {
       // 移除凋零
       const target = isSelfTarget ? p : t;
@@ -669,8 +668,8 @@ export function applyCard(
   }
 
   // 烈焰粉：上一张牌造成物理伤害后打出额外造成火焰伤害
-  if (card.name === '烈焰粉' && p.causePhyiscalDamage) {
-    p.causePhyiscalDamage = false;
+  if (card.name === '烈焰粉' && p.causePhysicalDamage) {
+    p.causePhysicalDamage = false;
     damage(p, t, DamageType.Fire, 2);
   }
 

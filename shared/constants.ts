@@ -233,8 +233,8 @@ export const CARDS: CardTemplate[] = [
   {
     id: 'card_27', name: '三叉戟', icon: '9', weight: 1,
     costType: CostType.Weapon,
-    effects: [eff(BuffType.Strength, 1)],
-    description: '力量+1层 / 攻击处于凋零状态的玩家时造成额外1点伤害',
+    effects: [eff(BuffType.Strength, 1, 1)],
+    description: '力量+1层[*1] / 攻击处于凋零状态的玩家时造成额外1点伤害',
   },
   {
     id: 'card_28', name: '烈焰棒', icon: '9', weight: 1,

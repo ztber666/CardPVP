@@ -3,7 +3,6 @@ import {
   createGame, initGame, startTurn, endTurn, playCard, PlayCardResult,
   discardFromHand, unequipCard, handleGuessWeight, handleDraftPick,
   handleBucketChoice, handleEquipChoice, handleBrewConversion,
-  handleBlazeDiscard,
 } from '../../shared/gameEngine';
 import { validatePlayCard, validateEndTurn } from '../../shared/validation';
 import { deepClone } from '../../shared/buffEngine';

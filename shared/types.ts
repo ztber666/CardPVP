@@ -107,7 +107,7 @@ export interface PlayerState {
   lastPlayedCardName: string;     // 本回合上一张打出的牌名
   lastPlayedCardEffects: EffectDef[];  // 上一张牌的效果（玻璃板用）
   lastPlayedCardCostType: CostType;    // 上一张牌的消耗类型
-  causePhyiscalDamage: boolean;   // 上一张牌是否造成物理伤害
+  causePhysicalDamage: boolean;   // 上一张牌是否造成物理伤害
   canEnchantDiscard: boolean;
   pendingGuessCardId: string;     // 侦测器：待猜测的对手牌ID
   pendingGuessCardWeight: number; // 侦测器：待猜测的权重
@@ -122,7 +122,6 @@ export interface PlayerState {
   jungleHpUpTriggered: boolean;     // 丛林：血量上限+1已触发
   pendingBucketChoice: string;       // 水桶：待选封锁类型(action/strategy)
   pendingEquipChoice: string;        // 诡异钓竿：待选装备槽位
-  durationTickCounter: number;       // 持续时间节拍器：每两次结束出牌减1回合（0/1交替）
 }
 
 // ===== 游戏阶段 =====
@@ -144,6 +143,7 @@ export interface GameState {
   roomId: string;
   players: [PlayerState, PlayerState];
   currentTurnIndex: number;
+  durationTickCounter: number; // 全局持续时间节拍器（每两次结束出牌减1回合，0/1交替）
   turnNumber: number;
   phase: GamePhase;
   log: GameLogEntry[];
@@ -169,24 +169,24 @@ export const BUFF_NAMES: Record<BuffType, string> = {
   [BuffType.Weakness]: '虚弱',
   [BuffType.Resistance]: '抗性',
   [BuffType.Vulnerability]: '易伤',
-  [BuffType.Heal]: '回血',
+  [BuffType.Heal]: '生命恢复',
   [BuffType.Wither]: '凋零',
   [BuffType.Shield]: '护盾',
   [BuffType.FireResist]: '抗火',
   [BuffType.Poison]: '中毒',
-  [BuffType.FireVuln]: '火焰易伤',
+  [BuffType.FireVuln]: '易燃',
   [BuffType.HealBoost]: '治愈增强',
   [BuffType.LockAction]: '行动封锁',
   [BuffType.LockStrategy]: '锦囊封锁',
-  [BuffType.WitherOnDraw]: '摸牌凋零',
-  [BuffType.DamageBoost]: '伤害加成',
+  [BuffType.WitherOnDraw]: '陷阱',
+  [BuffType.DamageBoost]: '暴击',
   [BuffType.RemoveWither]: '移除凋零',
   [BuffType.ReduceDuration]: '缩减时效',
   [BuffType.ReduceMaxHp]: '生命上限降低',
   [BuffType.IncreaseMaxHp]: '生命上限提升',
   [BuffType.ConditionalDiscard]: '条件丢弃',
   [BuffType.PhysicalDamage]: '物理伤害',
-  [BuffType.Damage]: '真实伤害',
+  [BuffType.Damage]: '龙息伤害',
   [BuffType.DrawCard]: '摸牌',
   [BuffType.StealCard]: '抽牌',
   [BuffType.RevealHand]: '展示手牌',
