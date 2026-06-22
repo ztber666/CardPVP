@@ -70,6 +70,7 @@ export interface CardDef {
   effects: EffectDef[];
   description: string;
   weight?: number;         // 牌组权重（侦测器需要）
+  sourcePlayerId?: string;   // 牌来源玩家ID (计算装备/场地效果时需要)
 }
 
 // ===== 激活的 Buff（运行时数据） =====

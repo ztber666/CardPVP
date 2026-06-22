@@ -7,6 +7,8 @@ interface PlayerInfo {
   roomId: string;
 }
 
+export type RematchState = null | 'requested' | 'invited' | 'declined';
+
 interface GameStore {
   // 连接状态
   connected: boolean;
@@ -19,11 +21,16 @@ interface GameStore {
   isMyTurn: boolean;
   waitingForOpponent: boolean;
 
+  // 再战状态
+  rematchState: RematchState;
+  rematchRequesterName: string | null;
+
   // 操作
   setConnected: (connected: boolean) => void;
   setPlayer: (player: PlayerInfo) => void;
   setGameState: (state: GameState | null) => void;
   setWaitingForOpponent: (waiting: boolean) => void;
+  setRematchState: (state: RematchState, requesterName?: string | null) => void;
   reset: () => void;
 }
 
@@ -33,6 +40,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   gameState: null,
   isMyTurn: false,
   waitingForOpponent: false,
+  rematchState: null,
+  rematchRequesterName: null,
 
   setConnected: (connected) => set({ connected }),
 
@@ -54,10 +63,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setWaitingForOpponent: (waiting) => set({ waitingForOpponent: waiting }),
 
+  setRematchState: (state, requesterName) => set({
+    rematchState: state,
+    rematchRequesterName: requesterName !== undefined ? requesterName : null,
+  }),
+
   reset: () => set({
     player: null,
     gameState: null,
     isMyTurn: false,
     waitingForOpponent: false,
+    rematchState: null,
+    rematchRequesterName: null,
   }),
 }));

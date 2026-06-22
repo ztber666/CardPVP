@@ -20,8 +20,8 @@ import GameLogPanel from '../components/GameLogPanel';
 import BuffBadge from '../components/BuffBadge';
 
 export default function Game() {
-  const { playCard, endTurn, discardCard, unequipCard, disconnect, guessWeight, draftPick, bucketChoice, equipChoice, brewChoice, blazeDiscard, debugDrawCard } = useSocket();
-  const { gameState, player, isMyTurn } = useGameStore();
+  const { playCard, endTurn, discardCard, unequipCard, disconnect, guessWeight, draftPick, bucketChoice, equipChoice, brewChoice, blazeDiscard, debugDrawCard, rematchRequest, rematchAccept, rematchDecline } = useSocket();
+  const { gameState, player, isMyTurn, rematchState, rematchRequesterName } = useGameStore();
 
   const [selectedCard, setSelectedCard] = useState<CardDef | null>(null);
   const [pending, setPending] = useState(false);
@@ -158,6 +158,8 @@ export default function Game() {
     if (gameState?.phase === GamePhase.GameOver) {
       const timer = setTimeout(() => setShowResult(true), 600);
       return () => clearTimeout(timer);
+    } else {
+      setShowResult(false);
     }
   }, [gameState?.phase]);
 
@@ -271,6 +273,27 @@ export default function Game() {
     disconnect();
     window.location.reload();
   }, [disconnect]);
+
+  // 再战
+  const [rematchPending, setRematchPending] = useState(false);
+  const handleRematchRequest = useCallback(async () => {
+    setRematchPending(true);
+    const res = await rematchRequest();
+    setRematchPending(false);
+    if (res.success) {
+      useGameStore.getState().setRematchState('requested');
+    } else {
+      showToast(res.error || '请求失败');
+    }
+  }, [rematchRequest, showToast]);
+
+  const handleRematchAccept = useCallback(async () => {
+    await rematchAccept();
+  }, [rematchAccept]);
+
+  const handleRematchDecline = useCallback(async () => {
+    await rematchDecline();
+  }, [rematchDecline]);
 
   // 侦测器
   const handleGuessSubmit = useCallback(async () => {
@@ -428,13 +451,27 @@ export default function Game() {
       {showGameLog && <GameLogPanel log={gameState.log} onClose={() => setShowGameLog(false)} />}
 
       {/* ===== 游戏结束弹窗 ===== */}
-      {showResult && (
+      {showResult && gameState?.phase === GamePhase.GameOver && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={handleAreaClick}>
           <div className="bg-card-bg border border-card-border rounded-2xl p-8 text-center max-w-sm w-full mx-4 shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="text-5xl mb-4">{iWin ? '🎉' : '😢'}</div>
             <h2 className="text-xl font-bold text-text-primary mb-2">{iWin ? '恭喜获胜！' : '战败'}</h2>
             <p className="text-text-secondary text-sm mb-6">{iWin ? `你击败了 ${opponent.name}！` : `${opponent.name} 击败了你`}</p>
-            <button onClick={handleBackToLobby} className="w-full py-2.5 rounded-xl bg-accent-shield/15 border border-accent-shield/25 text-accent-shield font-semibold text-sm hover:bg-accent-shield/25 transition-colors">返回大厅</button>
+            <div className="flex gap-2">
+              {rematchState === 'requested' ? (
+                <button disabled className="flex-1 py-2.5 rounded-xl bg-accent-equip/15 border border-accent-equip/25 text-accent-equip font-semibold text-sm opacity-60 cursor-not-allowed">
+                  ⏳ 等待对方接受...
+                </button>
+              ) : (
+                <button onClick={handleRematchRequest} disabled={rematchPending} className="flex-1 py-2.5 rounded-xl bg-accent-equip/15 border border-accent-equip/25 text-accent-equip font-semibold text-sm hover:bg-accent-equip/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  {rematchPending ? '⏳' : '⚔️'} 再战
+                </button>
+              )}
+              <button onClick={handleBackToLobby} className="flex-1 py-2.5 rounded-xl bg-accent-shield/15 border border-accent-shield/25 text-accent-shield font-semibold text-sm hover:bg-accent-shield/25 transition-colors">返回大厅</button>
+            </div>
+            {rematchState === 'declined' && (
+              <p className="text-xs text-accent-attack/70 mt-3 animate-fade-in">对方拒绝了再战请求</p>
+            )}
           </div>
         </div>
       )}
@@ -577,6 +614,27 @@ export default function Game() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 再战邀请弹窗 ===== */}
+      {rematchState === 'invited' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-card-bg border border-card-border rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl text-center">
+            <div className="text-4xl mb-3">⚔️</div>
+            <h3 className="text-lg font-bold text-text-primary mb-2">再战邀请</h3>
+            <p className="text-sm text-text-secondary mb-6">
+              {rematchRequesterName ? `${rematchRequesterName} ` : '对方'}请求再来一局！
+            </p>
+            <div className="flex gap-3">
+              <button onClick={handleRematchAccept} className="flex-1 py-2.5 rounded-xl bg-accent-heal/15 border border-accent-heal/25 text-accent-heal font-semibold text-sm hover:bg-accent-heal/25 transition-colors">
+                ✅ 接受
+              </button>
+              <button onClick={handleRematchDecline} className="flex-1 py-2.5 rounded-xl border border-card-border text-text-secondary text-sm hover:bg-card-bg/50 transition-colors">
+                ✕ 拒绝
+              </button>
             </div>
           </div>
         </div>

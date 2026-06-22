@@ -190,7 +190,7 @@ export function playCard(state: GameState, action: PlayCardAction, playerId: str
   };
 }
 
-// ===== 结束回合 =====
+// ===== 结束小回合 =====
 export function endTurn(state: GameState): GameState {
   let s = deepClone(state);
 
@@ -202,14 +202,20 @@ export function endTurn(state: GameState): GameState {
     message: `${name}行动结束`,
     timestamp: Date.now(),
   });
-  // 切换玩家
-  s.currentTurnIndex = 1 - s.currentTurnIndex;
-
-  // 处理回合结束 Buff：双方身上来源是「结束出牌方对手」的 buff 持续-1
+  // 处理回合结束 Buff：双方身上来自对方的 buff 持续-1
   const opponentId = s.players[1 - endingIdx].id;
   for (let i = 0; i < s.players.length; i++) {
-    s.players[i] = processTurnEndBuffs(s.players[i], opponentId);
+      s.players[i] = processTurnEndBuffs(s.players[i], opponentId);
+      s.players[i] = processTurnStartBuffs(s.players[i], opponentId);
+      // 检查胜负
+      if (s.players[i].hp <= 0) {
+      s.phase = GamePhase.GameOver;
+      s.winnerId = s.players.find(pl => pl.id !== s.players[i].id)?.id;
+      return s;
+    }
   }
+  // 切换玩家
+  s.currentTurnIndex = 1 - s.currentTurnIndex;
 
   // 持续时间节拍器：每两次结束出牌为完整一轮
   s.durationTickCounter = ((s.durationTickCounter || 0) + 1) % 2;
@@ -220,22 +226,8 @@ export function endTurn(state: GameState): GameState {
       message: `第${s.turnNumber}回合开始`,
       timestamp: Date.now(),
     });
-
-    // 完整轮结束时，下一位玩家的回合开始 buff 生效
-    s.players[s.currentTurnIndex] = processTurnStartBuffs(
-      s.players[s.currentTurnIndex],
-      getOpponentId(s, s.players[s.currentTurnIndex].id),
-    );
   }
 
-  // 检查胜负
-  for (const p of state.players) {
-    if (p.hp <= 0) {
-      state.phase = GamePhase.GameOver;
-      state.winnerId = state.players.find(pl => pl.id !== p.id)?.id;
-      break;
-    }
-  }
   return s;
 }
 
@@ -270,7 +262,7 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
   //烈焰棒
   if(player.equipment?.weapon?.name === '烈焰棒' && player.causePhysicalDamage) {
     player.causePhysicalDamage = false;
-    damage(player, target, DamageType.Fire, 2);
+    damage(player, target, DamageType.Fire, 2, true);
     s.log.push({
       turnNumber: s.turnNumber,
       message: `烈焰棒生效：${target.name}受到2点火焰伤害`,
@@ -281,7 +273,7 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
   // 绑定诅咒：丢弃牌时受伤害
   const curseStack = getBuffStacks(player, BuffType.DamageOnDiscard);
   if (curseStack > 0) {
-    damage(player, player, DamageType.Real, curseStack);
+    damage(player, player, DamageType.Real, curseStack, false);
     s.log.push({
       turnNumber: s.turnNumber,
       message: `${player.name}丢弃牌时受到${curseStack}点绑定诅咒伤害`,
@@ -328,15 +320,13 @@ export function unequipCard(state: GameState, playerId: string, slot: string): G
   if (!card) return s;
 
   delete player.equipment[slot as keyof typeof player.equipment];
-  // 移除该装备产生的buff
-  player.buffs = player.buffs.filter(b => b.sourceCardId !== card.id);
   // 装备卸下时直接丢弃（进入弃牌堆），触发丢弃事件
   player.discardPile.push(card);
 
   // 绑定诅咒：丢弃牌时受伤害
   const curseStack = getBuffStacks(player, BuffType.DamageOnDiscard);
   if (curseStack > 0) {
-    damage(player, player, DamageType.Real, curseStack);
+    damage(player, player, DamageType.Real, curseStack, false);
     s.log.push({
       turnNumber: s.turnNumber,
       message: `${player.name}丢弃牌时受到${curseStack}点绑定诅咒伤害`,
@@ -501,10 +491,10 @@ export function handleBucketChoice(state: GameState, playerId: string, lockType:
   const oppIdx = 1 - idx;
   const opponent = s.players[oppIdx];
   if (lockType === 'action') {
-    opponent.buffs.push({ buffType: BuffType.LockAction, value: 1, stacks: 1, remainingTurns: 1, sourceCardId: 'bucket' });
+    applyEffectToPlayer(opponent, BuffType.LockAction, 1, 1, 'bucket', player.id);
     s.log.push({ turnNumber: s.turnNumber, message: `${player.name}封锁了对手的行动牌`, timestamp: Date.now() });
   } else if (lockType === 'strategy') {
-    opponent.buffs.push({ buffType: BuffType.LockStrategy, value: 1, stacks: 1, remainingTurns: 1, sourceCardId: 'bucket' });
+    applyEffectToPlayer(opponent, BuffType.LockStrategy, 1, 1, 'bucket', player.id);
     s.log.push({ turnNumber: s.turnNumber, message: `${player.name}封锁了对手的锦囊牌`, timestamp: Date.now() });
   }
 

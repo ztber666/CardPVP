@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useGameStore } from '../store/gameStore';
 import { displayMessage } from '../store/notificationStore';
+import type { RematchState } from '../store/gameStore';
 import type { GameState } from '@shared/types';
 
 // 全局单例 socket
@@ -180,6 +181,34 @@ export function useSocket() {
     });
   }, []);
 
+  // 再战
+  const rematchRequest = useCallback((): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('rematch_request', {}, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
+  const rematchAccept = useCallback((): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('rematch_accept', {}, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
+  const rematchDecline = useCallback((): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      socket.emit('rematch_decline', {}, (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }, []);
+
   // 调试：摸指定卡牌
   const debugDrawCard = useCallback((cardId: string): Promise<{ success: boolean; error?: string }> => {
     return new Promise((resolve) => {
@@ -238,6 +267,23 @@ export function useSocket() {
       }
     });
 
+    socket.on('rematch_invite', (data: { requesterName: string }) => {
+      console.log('[Socket] 收到再战邀请', data);
+      useGameStore.getState().setRematchState('invited', data.requesterName);
+    });
+
+    socket.on('rematch_start', (state: GameState) => {
+      console.log('[Socket] 再战开始', state);
+      useGameStore.getState().setRematchState(null);
+      useGameStore.getState().setGameState(state);
+    });
+
+    socket.on('rematch_declined', () => {
+      console.log('[Socket] 再战被拒绝');
+      useGameStore.getState().setRematchState('declined');
+      setTimeout(() => useGameStore.getState().setRematchState(null), 2000);
+    });
+
     socket.on('server_notify', (data: { text: string; target: string }) => {
       console.log('[Notify] 客户端收到 server_notify:', data);
       const me = useGameStore.getState().player;
@@ -260,6 +306,9 @@ export function useSocket() {
       socket.off('game_over');
       socket.off('opponent_left');
       socket.off('error');
+      socket.off('rematch_invite');
+      socket.off('rematch_start');
+      socket.off('rematch_declined');
       socket.off('server_notify');
     };
   }, [setConnected, setGameState, setWaitingForOpponent, reset]);
@@ -281,5 +330,8 @@ export function useSocket() {
     brewChoice,
     blazeDiscard,
     debugDrawCard,
+    rematchRequest,
+    rematchAccept,
+    rematchDecline,
   };
 }

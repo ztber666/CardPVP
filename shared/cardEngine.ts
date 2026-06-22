@@ -52,7 +52,7 @@ export function drawCards(player: PlayerState, count: number): PlayerState {
       p.hand.push(drawn);
       // 丢弃事件：绑定诅咒
       const curseBuff = findBuff(p, BuffType.DamageOnDiscard);
-      if (curseBuff) p.hp = Math.max(0, p.hp - curseBuff.value);
+      if (curseBuff) damage(p, p, DamageType.Real, curseBuff.value, false);
       // 丢弃事件：下界荒地
       if (p.equipment?.field?.name === '下界荒地' && (p.shieldOnDiscardCount || 0) < 2) {
         applyEffectToPlayer(p, BuffType.Shield, 1, undefined, p.equipment.field.id, p.id);
@@ -202,9 +202,10 @@ export function heal(source: PlayerState, target: PlayerState, number: number) {
   }
   
   //金护腿：溢出转护盾
-  if (healAmt > 0 && target.equipment?.equip?.name === '金护腿') {
+  const overHeal = Math.max(0, target.hp + healAmt - target.maxHp);
+  if (overHeal > 0 && target.equipment?.equip?.name === '金护腿') {
     const curShield = getBuffStacks(target, BuffType.Shield);
-    const add = Math.min(healAmt, 5 - curShield);
+    const add = Math.min(overHeal, 5 - curShield);
     if (add > 0) applyEffectToPlayer(target, BuffType.Shield, add, undefined, 'golden_greaves', source.id);
   }
   //实际回血
@@ -212,7 +213,7 @@ export function heal(source: PlayerState, target: PlayerState, number: number) {
 
   //中毒：回血后扣3HP（每回合限2次）
   if (getBuffStacks(target, BuffType.Poison) > 0 && target.poisonTriggerCountThisTurn < 2) {
-    damage(target, target, DamageType.Real, 3);
+    damage(target, target, DamageType.Real, 3, false);
     target.poisonTriggerCountThisTurn += 1;
   }
   return healAmt;
@@ -234,7 +235,7 @@ export function consumeInPlace(player: PlayerState, type: BuffType, amount: numb
   return amount - remaining;
 }
 
-export function damage(source: PlayerState, target: PlayerState, type: DamageType, base: number): number {
+export function damage(source: PlayerState, target: PlayerState, type: DamageType, base: number, isCard: boolean): number {
   let number = Math.max(0, base);
   if(type === DamageType.Physical) {
     //力量（所有实例求和）
@@ -270,12 +271,12 @@ export function damage(source: PlayerState, target: PlayerState, type: DamageTyp
     //滴水石锥（物伤回血）
     if (source.equipment?.weapon?.name === '滴水石锥') heal(source, source, 1);
     //烈焰棒：标记触发条件
-    if (source.equipment?.weapon?.name === '烈焰棒') {
+    if (source.equipment?.weapon?.name === '烈焰棒' && isCard) {
       source.causePhysicalDamage = true;
       showMessage('丢弃一张牌可造成两点火焰伤害', "self")
     }
     //烈焰粉提示
-    if(source.hand.filter(card => card.name === '烈焰粉').length > 0) {
+    if(source.hand.filter(card => card.name === '烈焰粉').length > 0 && isCard) {
       source.causePhysicalDamage = true;
       showMessage('打出烈焰粉可额外造成2点火焰伤害', "self");
     }
@@ -284,13 +285,8 @@ export function damage(source: PlayerState, target: PlayerState, type: DamageTyp
     //抗火：免疫
     const fireResist = getBuffStacks(target, BuffType.FireResist);
     if (fireResist > 0) return 0;
-    //火焰易伤：消耗层数增加伤害
-    const fvStacks = getBuffStacks(target, BuffType.FireVuln);
-    if (fvStacks > 0) {
-      const consumed = Math.min(fvStacks, Math.max(0, number));
-      if (consumed > 0) consumeInPlace(target, BuffType.FireVuln, consumed);
-      number += consumed;
-    }
+    //火焰易伤：增加火焰伤害
+    number += getBuffStacks(target, BuffType.FireVuln);
   } else if(type === DamageType.Real) {
     //真实伤害：无视所有buff
     target.hp = Math.max(0, target.hp - number);
@@ -398,7 +394,8 @@ export function applyCard(
       msgs.push(`${cardName}替换了已有的${oldCard.name}，${oldCard.name}进入废牌堆`);
       p.buffs = p.buffs.filter(b => b.sourceCardId !== oldCard.id);
     }
-    p.equipment[slotKey] = card;
+    const modifiedCard = { ...card, sourcePlayerId: p.id }; // 记录装备来源玩家ID，供buff计算时参考
+    p.equipment[slotKey] = modifiedCard;
     msgs.push(`${cardName}已装备`);
   } else {
     p.discardPile.push(card);
@@ -428,16 +425,16 @@ export function applyCard(
     } else if (effect.buffType === BuffType.PhysicalDamage) {
       //物理伤害
       const target = isSelfTarget ? p : t;
-      damage(p, target, DamageType.Physical, effect.value);
+      damage(p, target, DamageType.Physical, effect.value, true);
     } else if (effect.buffType === BuffType.Damage) {
       // 真伤/魔法伤害
       const target = isSelfTarget ? p : t;
       if (effect.duration && effect.duration > 0) {
         // 持续真伤（治愈 buff，每回合回复）
         applyEffectToPlayer(target, BuffType.Damage, effect.value, effect.duration, card.id, p.id);
-        damage(target, target, DamageType.Real, effect.value);
+        damage(target, target, DamageType.Real, effect.value, true);
         msgs.push(`${cardName}使${targetLabel}获得龙息${effect.value}点（${effect.duration}回合）`);
-      } else damage(p, target, DamageType.Real, effect.value);
+      } else damage(p, target, DamageType.Real, effect.value, true);
     } else if (effect.buffType === BuffType.RemoveWither) {
       // 移除凋零
       const target = isSelfTarget ? p : t;
@@ -492,7 +489,7 @@ export function applyCard(
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
       } else {
         applyEffectToPlayer(target, BuffType.Horde, 1, 2, card.id, p.id);
-        damage(target, target, DamageType.Physical, 4);
+        damage(target, target, DamageType.Physical, 4, true);
         if (isSelfTarget) p = target; else t = target;
         msgs.push(`${cardName}给予${targetLabel} 2回合尸潮（未丢弃<烟花>）`);
       }
@@ -659,7 +656,7 @@ export function applyCard(
   // 烈焰粉：上一张牌造成物理伤害后打出额外造成火焰伤害
   if (card.name === '烈焰粉' && p.causePhysicalDamage) {
     p.causePhysicalDamage = false;
-    damage(p, t, DamageType.Fire, 2);
+    damage(p, t, DamageType.Fire, 2, true);
   }
 
   // ===== 写入状态 =====

@@ -24,6 +24,9 @@ import {
   handleEquipChoiceAction,
   handleBrewConversionAction,
   handleDebugDrawCard,
+  handleRematchRequest,
+  handleRematchAccept,
+  handleRematchDecline,
 } from './rooms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -342,6 +345,68 @@ io.on('connection', (socket) => {
         if (room) {
           for (const player of room.players) {
             io.to(player.socketId).emit('state_update', filterStateForPlayer(result.gameState, player.id));
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  // ===== 再战 =====
+  socket.on('rematch_request', (_data, callback) => {
+    console.log(`[再战] ${socket.id} 请求再战`);
+    const result = handleRematchRequest(socket.id);
+    if (result.success) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const p of room.players) {
+            if (p.socketId !== socket.id) {
+              io.to(p.socketId).emit('rematch_invite', { requesterName: result.requesterName });
+            }
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  socket.on('rematch_accept', (_data, callback) => {
+    console.log(`[再战] ${socket.id} 接受再战`);
+    const result = handleRematchAccept(socket.id);
+    if (result.success && result.gameState) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const p of room.players) {
+            io.to(p.socketId).emit('rematch_start', result.gameState);
+          }
+        }
+      }
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: result.error });
+    }
+  });
+
+  socket.on('rematch_decline', (_data, callback) => {
+    console.log(`[再战] ${socket.id} 拒绝再战`);
+    const result = handleRematchDecline(socket.id);
+    if (result.success) {
+      const roomInfo = getRoomBySocketId(socket.id);
+      if (roomInfo) {
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+          for (const p of room.players) {
+            if (p.socketId !== socket.id) {
+              io.to(p.socketId).emit('rematch_declined');
+            }
           }
         }
       }

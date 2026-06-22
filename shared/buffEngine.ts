@@ -58,33 +58,33 @@ export function applyEffectToPlayer(
 }
 
 // ===== 回合开始处理 =====
-export function processTurnStartBuffs(player: PlayerState, opponentId: string): PlayerState {
+export function processTurnStartBuffs(player: PlayerState, playerId: string): PlayerState {
   let p = deepClonePlayer(player);
 
   // 重置中毒回合计数器
   p.poisonTriggerCountThisTurn = 0;
 
   // 龙息 / 尸潮：来自对手的 debuff，用 opponentId 过滤
-  const damageStacks = getBuffStacks(p, BuffType.Damage, opponentId);
-  if(damageStacks > 0) damage(p, p, DamageType.Real, damageStacks);
-  const hordeStacks = getBuffStacks(p, BuffType.Horde, opponentId);
-  if(hordeStacks > 0) damage(p, p, DamageType.Physical, 4);
+  const damageStacks = getBuffStacks(p, BuffType.Damage, playerId);
+  if(damageStacks > 0) damage(p, p, DamageType.Real, damageStacks, false);
+  const hordeStacks = getBuffStacks(p, BuffType.Horde, playerId);
+  if(hordeStacks > 0) damage(p, p, DamageType.Physical, 4, false);
   // 治愈：不按来源过滤（可以是自己或对手给的）
-  const healStacks = getBuffStacks(p, BuffType.Heal);
+  const healStacks = getBuffStacks(p, BuffType.Heal, playerId);
   if(healStacks > 0) heal(p, p, healStacks);
 
   //钻石胸甲：每回合开始时获得1层抗性
-  if(player.equipment?.equip?.name === '钻石胸甲') {
+  if(player.equipment?.equip?.name === '钻石胸甲' && player.equipment?.equip?.sourcePlayerId === playerId) {
     applyEffectToPlayer(p, BuffType.Resistance, 1, 1, 'card_23', p.id);
   }
 
   //海龟壳：每回合开始时获得抗火
-  if(player.equipment?.equip?.name === '海龟壳') {
+  if(player.equipment?.equip?.name === '海龟壳' && player.equipment?.equip?.sourcePlayerId === playerId) {
     applyEffectToPlayer(p, BuffType.FireResist, 1, 1, 'card_26', p.id);
   }
 
   //三叉戟：每回合开始时获得1层力量
-  if(player.equipment?.weapon?.name === '三叉戟') {
+  if(player.equipment?.weapon?.name === '三叉戟' && player.equipment?.weapon?.sourcePlayerId === playerId) {
     applyEffectToPlayer(p, BuffType.Strength, 1, 1, 'card_27', p.id);
   }
 

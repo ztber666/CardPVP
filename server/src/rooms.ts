@@ -23,6 +23,7 @@ interface Room {
   players: RoomPlayer[];
   gameState: GameState | null;
   createdAt: number;
+  rematchRequestedBy?: string; // playerId of who requested a rematch
 }
 
 const rooms = new Map<string, Room>();
@@ -154,7 +155,9 @@ export function handleEndTurn(socketId: string): { success: boolean; gameState?:
   }
 
   room.gameState = endTurn(room.gameState);
-  room.gameState = startTurn(room.gameState);
+  if (room.gameState.phase !== GamePhase.GameOver) {
+    room.gameState = startTurn(room.gameState);
+  }
 
   return { success: true, gameState: room.gameState };
 }
@@ -272,6 +275,54 @@ export function adminDeleteRoom(roomId: string): boolean {
   rooms.delete(roomId);
   console.log(`[管理员] 删除房间 ${roomId}`);
   return true;
+}
+
+// ===== 再战 =====
+export function handleRematchRequest(socketId: string): { success: boolean; requesterName?: string; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+
+  const room = rooms.get(roomInfo.roomId);
+  if (!room) return { success: false, error: '房间不存在' };
+  if (room.gameState?.phase !== GamePhase.GameOver) {
+    return { success: false, error: '游戏未结束' };
+  }
+
+  room.rematchRequestedBy = roomInfo.playerId;
+  const requester = room.players.find(p => p.id === roomInfo.playerId);
+  return { success: true, requesterName: requester?.name };
+}
+
+export function handleRematchAccept(socketId: string): { success: boolean; gameState?: GameState; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+
+  const room = rooms.get(roomInfo.roomId);
+  if (!room) return { success: false, error: '房间不存在' };
+  if (!room.rematchRequestedBy) return { success: false, error: '没有再战请求' };
+
+  // 重置再战状态
+  room.rematchRequestedBy = undefined;
+
+  // 创建新游戏
+  const gameState = createGame(
+    room.id,
+    room.players[0].id, room.players[0].name,
+    room.players[1].id, room.players[1].name,
+  );
+  room.gameState = initGame(gameState);
+  return { success: true, gameState: room.gameState };
+}
+
+export function handleRematchDecline(socketId: string): { success: boolean; error?: string } {
+  const roomInfo = getRoomBySocketId(socketId);
+  if (!roomInfo) return { success: false, error: '未找到房间' };
+
+  const room = rooms.get(roomInfo.roomId);
+  if (!room) return { success: false, error: '房间不存在' };
+
+  room.rematchRequestedBy = undefined;
+  return { success: true };
 }
 
 // ===== 清理过期房间 =====
