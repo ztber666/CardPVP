@@ -17,7 +17,7 @@ export default function GameLog({ log }: Props) {
   return (
     <div
       ref={scrollRef}
-      className="bg-card-bg/50 border border-card-border/60 rounded-xl p-3 h-28 overflow-y-auto text-xs space-y-1"
+      className="bg-card-bg/50 border border-card-border/60 rounded-xl p-3 overflow-y-auto text-xs space-y-1"
     >
       {log.length === 0 ? (
         <p className="text-text-secondary/50 italic">暂无事件记录</p>

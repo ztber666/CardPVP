@@ -119,3 +119,49 @@
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
 }
+
+/* 手牌折叠展开 */
+@keyframes expandHand {
+  from { max-height: 4.5rem; }
+  to { max-height: 300px; }
+}
+@keyframes collapseHand {
+  from { max-height: 300px; }
+  to { max-height: 4.5rem; }
+}
+.animate-expand-hand {
+  animation: expandHand 0.35s ease-out both;
+}
+.animate-collapse-hand {
+  animation: collapseHand 0.3s ease-in both;
+}
+
+/* 出牌飞入 */
+@keyframes cardFlyIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes cardFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; transform: scale(0.95); }
+}
+.animate-card-fly-in {
+  animation: cardFlyIn 0.4s ease-out both;
+}
+.animate-card-fade-out {
+  animation: cardFadeOut 0.5s ease-in both;
+}
+
+/* 右侧滑入 */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.animate-slide-in-right {
+  animation: slideInRight 0.3s ease-out both;
+}
+
+/* z-index 工具 */
+.z-35 {
+  z-index: 35;
+}

@@ -8,6 +8,7 @@ interface Props {
   selected?: boolean;
   onClick?: () => void;
   hidden?: boolean;
+  played?: boolean;
 }
 
 const TYPE_BADGE: Record<string, string> = {
@@ -45,11 +46,11 @@ const COST_TYPE_LABELS: Record<string, string> = {
   [CostType.Field]: '场地', [CostType.Counter]: '策略',
 };
 
-export default function Card({ card, compact, disabled, selected, onClick, hidden }: Props) {
+export default function Card({ card, compact, disabled, selected, onClick, hidden, played }: Props) {
   // 卡背
   if (hidden) {
     return (
-      <div className="w-14 h-20 bg-gradient-to-br from-card-bg to-card-border/30 border border-card-border rounded-lg flex items-center justify-center shadow-card select-none">
+      <div className="w-16 h-24 sm:w-18 sm:h-26 bg-gradient-to-br from-card-bg to-card-border/30 border border-card-border rounded-lg flex items-center justify-center shadow-card select-none">
         <span className="text-xl font-bold text-text-secondary/30">?</span>
       </div>
     );
@@ -66,19 +67,20 @@ export default function Card({ card, compact, disabled, selected, onClick, hidde
         onClick={onClick}
         disabled={disabled}
         className={`
-          w-14 h-20 bg-card-bg border border-card-border rounded-lg
-          flex flex-col items-center justify-start gap-0.5 px-1 pt-1
+          w-16 h-24 sm:w-18 sm:h-26 bg-card-bg border border-card-border rounded-lg
+          flex flex-col items-center justify-start gap-0.5 px-1 pt-1.5
           shadow-card select-none transition-ios
           border-l-[3px] ${borderCls}
+          ${played ? 'animate-pulse-glow' : ''}
           ${selected
             ? '-translate-y-3 shadow-xl ring-2 ring-accent-shield/30'
             : disabled ? 'opacity-50 cursor-not-allowed grayscale' : 'cursor-pointer'
           }
         `}
       >
-        <img src={imgUrl} alt={card.name} className="w-8 h-8 object-contain" />
-        <span className="text-[9px] font-semibold text-text-primary leading-tight text-center line-clamp-2">{card.name}</span>
-        <span className={`px-1 py-[0.5px] rounded text-[7px] font-medium ${badgeCls}`}>
+        <img src={imgUrl} alt={card.name} className="w-9 h-9 sm:w-10 sm:h-10 object-contain" />
+        <span className="text-[10px] sm:text-xs font-semibold text-text-primary leading-tight text-center line-clamp-2">{card.name}</span>
+        <span className={`px-1.5 py-[0.5px] rounded text-[8px] sm:text-[9px] font-medium ${badgeCls}`}>
           {COST_TYPE_LABELS[card.costType]}
         </span>
       </button>
