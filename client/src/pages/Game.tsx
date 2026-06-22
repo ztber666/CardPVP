@@ -10,17 +10,28 @@ import CardDetail from '../components/CardDetail';
 import NotificationToast from '../components/NotificationToast';
 import { displayMessage } from '../store/notificationStore';
 import { getCardImageUrl } from '../utils/cardImage';
+import SelectedCardDetail from '../components/SelectedCardDetail';
+import CardActionPanel from '../components/CardActionPanel';
+import ConsumptionCounter from '../components/ConsumptionCounter';
+import EquipmentDisplay from '../components/EquipmentDisplay';
+import PlayedCardOverlay from '../components/PlayedCardOverlay';
+import DebugDrawButton from '../components/DebugDrawButton';
+import GameLogPanel from '../components/GameLogPanel';
+import BuffBadge from '../components/BuffBadge';
 
 export default function Game() {
   const { playCard, endTurn, discardCard, unequipCard, disconnect, guessWeight, draftPick, bucketChoice, equipChoice, brewChoice, blazeDiscard, debugDrawCard } = useSocket();
   const { gameState, player, isMyTurn } = useGameStore();
 
   const [selectedCard, setSelectedCard] = useState<CardDef | null>(null);
-  const [detailCard, setDetailCard] = useState<CardDef | null>(null);
   const [pending, setPending] = useState(false);
-  const [panelLeaving, setPanelLeaving] = useState(false);
-  const lastCardRef = useRef<CardDef | null>(null); // 退出动画期间保留最后选中卡牌
   const [showResult, setShowResult] = useState(false);
+  const [showGameLog, setShowGameLog] = useState(false);
+  const [handOverlay, setHandOverlay] = useState<'my' | 'opponent' | null>(null);
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [recentPlayedCard, setRecentPlayedCard] = useState<{ card: CardDef; playerName: string; key: number } | null>(null);
+  const playedCardTimer = useRef<ReturnType<typeof setTimeout>>();
+  const playedCardKey = useRef(0);
 
   // 交互弹窗状态
   const [showGuessDialog, setShowGuessDialog] = useState(false);
@@ -150,45 +161,63 @@ export default function Game() {
     }
   }, [gameState?.phase]);
 
-  // 取消选中（带动画）
+  // 取消选中
   const doDeselect = useCallback(() => {
-    if (selectedCard) lastCardRef.current = selectedCard;
-    setPanelLeaving(true);
     setSelectedCard(null);
-    setDetailCard(null);
-    setTimeout(() => setPanelLeaving(false), 500);
-  }, [selectedCard]);
+  }, []);
+
+  // 手牌浮层打开（从屏幕外滑入）
+  const openHandOverlay = useCallback((who: 'my' | 'opponent') => {
+    setHandOverlay(who);
+    requestAnimationFrame(() => setOverlayVisible(true));
+  }, []);
+
+  // 手牌浮层关闭（滑出屏幕外后移除）
+  const closeHandOverlay = useCallback(() => {
+    setOverlayVisible(false);
+    setSelectedCard(null);
+    setTimeout(() => setHandOverlay(null), 300);
+  }, []);
 
   // 点击空白取消选中
-  const handleBgClick = useCallback(() => {
-    doDeselect();
-  }, [doDeselect]);
+  const handleAreaClick = useCallback(() => {
+    setSelectedCard(null);
+  }, []);
 
-  // 选牌（同一张牌切换时带动画取消）
+  // 回合开始时自动展开手牌
+  const prevTurnRef = useRef(isMyTurn);
+  useEffect(() => {
+    if (isMyTurn && !prevTurnRef.current) {
+      openHandOverlay('my');
+    }
+    prevTurnRef.current = isMyTurn;
+  }, [isMyTurn]);
+
+  // 出牌动画（双方）
+  useEffect(() => {
+    const who = opponent?.lastPlayedCardDef ? opponent : me;
+    if (!who?.lastPlayedCardDef?.length) return;
+    const latest = who.lastPlayedCardDef[who.lastPlayedCardDef.length - 1];
+    if (latest?.name) {
+      playedCardKey.current += 1;
+      setRecentPlayedCard({ card: latest, playerName: who.name, key: playedCardKey.current });
+      if (playedCardTimer.current) clearTimeout(playedCardTimer.current);
+      playedCardTimer.current = setTimeout(() => setRecentPlayedCard(null), 2200);
+    }
+  }, [opponent?.lastPlayedCardDef?.length, me?.lastPlayedCardDef?.length]);
+
+  // 选牌
   const handleSelectCard = useCallback((card: CardDef) => {
     if (!isMyTurn || pending || !gameState || !opponent) return;
-    if (selectedCard?.id === card.id) {
-      doDeselect();
-      return;
-    }
-    lastCardRef.current = card;
-    setSelectedCard(card);
-    setDetailCard(null);
-  }, [isMyTurn, pending, gameState, opponent, selectedCard, doDeselect]);
-
-  // 显示详情
-  const handleShowDetail = useCallback(() => {
-    if (selectedCard) setDetailCard(selectedCard);
-  }, [selectedCard]);
+    setSelectedCard(prev => prev?.id === card.id ? null : card);
+  }, [isMyTurn, pending, gameState, opponent]);
 
   // 出牌
   const handlePlayCard = useCallback(async (targetId: string) => {
     if (!selectedCard || !isMyTurn || pending) return;
     setPending(true);
     const res = await playCard(selectedCard.id, targetId);
-    if (!res.success && res.error) {
-      showToast(res.error);
-    }
+    if (!res.success && res.error) showToast(res.error);
     setSelectedCard(null);
     setPending(false);
   }, [selectedCard, isMyTurn, playCard, pending, showToast]);
@@ -198,9 +227,7 @@ export default function Game() {
     if (!selectedCard || pending) return;
     setPending(true);
     const res = await discardCard(selectedCard.id);
-    if (!res.success && res.error) {
-      showToast(res.error);
-    }
+    if (!res.success && res.error) showToast(res.error);
     setSelectedCard(null);
     setPending(false);
   }, [selectedCard, discardCard, pending, showToast]);
@@ -210,14 +237,12 @@ export default function Game() {
     if (!isMyTurn || pending) return;
     setPending(true);
     const res = await endTurn();
-    if (!res.success && res.error) {
-      showToast(res.error);
-    }
+    if (!res.success && res.error) showToast(res.error);
     setSelectedCard(null);
     setPending(false);
   }, [isMyTurn, endTurn, pending, showToast]);
 
-  // 水桶：选择封锁类型
+  // 水桶
   const handleBucketLock = useCallback(async (lockType: 'action' | 'strategy') => {
     setShowBucketDialog(false);
     setPending(true);
@@ -225,8 +250,7 @@ export default function Game() {
     setPending(false);
   }, [bucketChoice]);
 
-  // 诡异钓竿：选择装备丢弃
-  // 酿造台：转化卡牌
+  // 酿造台转化
   const handleBrewConvert = useCallback(async () => {
     if (!selectedCard) return;
     setPending(true);
@@ -242,19 +266,16 @@ export default function Game() {
     setPending(false);
   }, [equipChoice]);
 
-// 返回大厅
+  // 回大厅
   const handleBackToLobby = useCallback(() => {
     disconnect();
     window.location.reload();
   }, [disconnect]);
 
-  // 侦测器：提交猜测
+  // 侦测器
   const handleGuessSubmit = useCallback(async () => {
     const guess = parseInt(guessInput);
-    if (isNaN(guess) || guess < 0) {
-      showToast('请输入有效数字');
-      return;
-    }
+    if (isNaN(guess) || guess < 0) { showToast('请输入有效数字'); return; }
     setShowGuessDialog(false);
     setPending(true);
     await guessWeight(guess);
@@ -262,7 +283,7 @@ export default function Game() {
     setGuessInput('');
   }, [guessInput, guessWeight, showToast]);
 
-  // 附魔台：选择丢弃的牌（通过 discardCard 触发 canEnchantDiscard 流程）
+  // 附魔台选牌
   const handleEnchantSelect = useCallback(async (cardId: string) => {
     setShowEnchantDialog(false);
     setEnchantableCards([]);
@@ -271,7 +292,7 @@ export default function Game() {
     setPending(false);
   }, [discardCard]);
 
-  // 运输矿车：选牌
+  // 运输矿车
   const handleDraftSelect = useCallback(async (index: number) => {
     setShowDraftDialog(false);
     setDraftCardsList([]);
@@ -282,7 +303,7 @@ export default function Game() {
 
   if (!gameState || !me || !opponent) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-page-bg">
         <span className="text-text-secondary/60">加载中...</span>
       </div>
     );
@@ -290,19 +311,8 @@ export default function Game() {
 
   const iWin = gameState.winnerId === player?.id;
 
-  // 根据 icon 判断卡牌子类型（回血/攻击），替代旧行动卡判断
-  function getSubtypeLabel(card: CardDef): string | null {
-    const parts = card.icon.split(',').map(Number);
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (parts[i] === 3) return '回血';
-      if (parts[i] === 4) return '攻击';
-    }
-    return null;
-  }
-
   function isCardExhausted(card: CardDef): boolean {
     if (!me) return true;
-    //检查共享池
     if (card.costType === CostType.Action || card.costType === CostType.Strategy) {
       const poolLimit = 5 + (me.actionLimitBonus || 0);
       if ((me.actionStrategyCountThisTurn || 0) >= poolLimit) return true;
@@ -310,146 +320,123 @@ export default function Game() {
     return false;
   }
 
+  const hasBrew = !!(selectedCard && (selectedCard.name === '苹果' || selectedCard.name === '烟花') &&
+    me?.equipment?.weapon?.name === '酿造台');
+
   return (
-    <div className="min-h-screen flex flex-col relative" onClick={handleBgClick}>
-      {/* 全局通知 */}
+    <div className="h-screen flex flex-col bg-page-bg overflow-hidden" onClick={handleAreaClick}>
       <NotificationToast />
-      {/* 主内容区 */}
-      <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full px-3 py-3 gap-2" onClick={e => e.stopPropagation()}>
-        {/* ===== 对手信息 ===== */}
-        <div className="animate-fade-in">
-          <PlayerInfo player={opponent} isOpponent onUnequip={() => {}} />
+
+      {/* 顶部对手栏 */}
+      <div className="flex items-center justify-between h-12 shrink-0 px-4 border-b border-card-border/30 bg-page-dark/20" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          <PlayerInfo player={opponent} isOpponent />
+          <span className="text-xs font-semibold text-text-primary bg-card-bg/60 px-1.5 py-0.5 rounded border border-card-border/40">🃏{opponent.hand.length}</span>
+          <button onClick={() => openHandOverlay('opponent')}
+              className="text-[10px] text-text-secondary bg-card-bg/60 px-1.5 py-0.5 rounded border border-card-border/40 hover:bg-card-bg cursor-pointer">
+              展开
+            </button>
         </div>
-
-        {/* 对手手牌（卡背） */}
-        <PlayerHand
-          cards={opponent.hand}
-          disabled={true}
-          selectedCardId={null}
-          onSelectCard={() => {}}
-          hidden={true}
-        />
-
-        {/* ===== 战斗日志 ===== */}
-        <GameLog log={gameState.log} />
-
-        {/* ===== 操作按钮（选中卡牌时出现） ===== */}
-        {(() => {
-          const panelCard = selectedCard || (panelLeaving ? lastCardRef.current : null);
-          if (!panelCard || !isMyTurn) return null;
-          return (
-          <div
-            className={`bg-card-bg/90 backdrop-blur-sm border border-card-border rounded-xl p-2 shadow-card ${
-              panelLeaving ? 'animate-slide-down' : 'animate-slide-up'
-            }`}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* 选中卡牌简讯 */}
-            <div className="flex items-center gap-2 mb-2 px-1">
-              <img src={getCardImageUrl(panelCard.id)} alt="" className="w-7 h-7 object-contain" />
-              <span className="text-sm font-semibold text-text-primary">{panelCard.name}</span>
-              {(() => {
-                const subtype = getSubtypeLabel(panelCard);
-                const typeLabel = subtype !== null ? subtype :
-                  panelCard.costType === CostType.Strategy ? '锦囊' :
-                  panelCard.costType === CostType.Equip ? '装备' :
-                  panelCard.costType === CostType.Weapon ? '武器' :
-                  panelCard.costType === CostType.Field ? '场地' :
-                  panelCard.costType === CostType.Counter ? '策略' :
-                  panelCard.costType === CostType.Buff ? '增益' :
-                  panelCard.costType === CostType.Debuff ? '减益' :
-                  panelCard.costType === CostType.Event ? '事件' :
-                  panelCard.costType === CostType.Heal ? '回血' :
-                  panelCard.costType === CostType.Attack ? '攻击' :
-                  panelCard.costType === CostType.Action ? '行动' : '其他';
-                const style = subtype === '回血' ? 'bg-accent-heal/15 text-accent-heal' :
-                  subtype === '攻击' ? 'bg-accent-attack/15 text-accent-attack' :
-                  panelCard.costType === CostType.Strategy ? 'bg-accent-equip/15 text-accent-equip' :
-                  panelCard.costType === CostType.Equip || panelCard.costType === CostType.Weapon || panelCard.costType === CostType.Field ? 'bg-accent-equip/15 text-accent-equip' :
-                  panelCard.costType === CostType.Counter ? 'bg-accent-shield/15 text-accent-shield' :
-                  panelCard.costType === CostType.Buff ? 'bg-accent-buff/15 text-accent-buff' :
-                  panelCard.costType === CostType.Debuff ? 'bg-purple-100 text-purple-700' :
-                  panelCard.costType === CostType.Event ? 'bg-blue-100 text-blue-700' :
-                  'bg-accent-buff/15 text-accent-buff';
-                return <span className={`px-1.5 py-[1px] rounded text-[9px] font-medium ${style}`}>{typeLabel}</span>;
-              })()}
-            </div>
-            {/* 按钮行 */}
-            <div className="flex gap-1.5">
-              <button
-                onClick={handleShowDetail}
-                className="flex-1 py-2 rounded-lg border border-card-border text-text-secondary text-xs font-medium hover:bg-card-bg/50 transition-colors"
-              >
-                📋 属性
-              </button>
-              {panelCard.costType !== CostType.Equip && panelCard.costType !== CostType.Weapon && panelCard.costType !== CostType.Field && (
-                <button
-                  onClick={() => handlePlayCard(opponent.id)}  
-                  className="flex-1 py-2 rounded-lg bg-accent-attack/15 text-accent-attack text-xs font-medium hover:bg-accent-attack/25 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title={isCardExhausted(panelCard) ? '本回合行动/锦囊次数已用完' : ''}
-                >
-                  ⚔️ 对对手
-                </button>
-              )}
-              {/* 酿造台转化：选中苹果/烟花时显示 */}
-              {panelCard && (panelCard.name === '苹果' || panelCard.name === '烟花') && me?.equipment?.weapon?.name === '酿造台' && (
-                <button
-                  onClick={handleBrewConvert}
-                  disabled={pending}
-                  className="flex-1 py-2 rounded-lg bg-accent-buff/15 text-accent-buff text-xs font-medium hover:bg-accent-buff/25 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title={panelCard.name === '苹果' ? '转化为烟花' : '转化为苹果'}
-                >
-                  🧪 转化
-                </button>
-              )}
-              <button
-                onClick={() => handlePlayCard(me.id)}
-                //disabled={isCardExhausted(panelCard)}
-                className="flex-1 py-2 rounded-lg bg-accent-heal/15 text-accent-heal text-xs font-medium hover:bg-accent-heal/25 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                💚 对自己
-              </button>
-              <button
-                onClick={handleDiscard}
-                className="flex-1 py-2 rounded-lg border border-card-border text-text-secondary text-xs font-medium hover:bg-red-50 hover:text-accent-attack hover:border-accent-attack/20 transition-colors"
-              >
-                🗑️ 丢弃
-              </button>
-              <button
-                onClick={doDeselect}
-                className="flex-1 py-2 rounded-lg border border-card-border text-text-secondary text-xs font-medium hover:bg-card-bg/50 transition-colors"
-              >
-                ✕ 取消
-              </button>
-            </div>
-          </div>
-          );
-        })()}
-
-        {/* ===== 我的手牌 ===== */}
-        <PlayerHand
-          cards={me.hand}
-          disabled={!isMyTurn || pending}
-          selectedCardId={selectedCard?.id ?? null}
-          onSelectCard={handleSelectCard}
-        />
-
-        {/* ===== 我的信息 ===== */}
-        <PlayerInfo player={me} onUnequip={unequipCard} />
-
-        {/* ===== 操作栏 ===== */}
-        <ActionBar
-          player={me}
-          isMyTurn={isMyTurn}
-          onEndTurn={handleEndTurn}
-          pending={pending}
-          onDebugDraw={debugDrawCard}
-        />
+        <button onClick={() => setShowGameLog(true)} className="text-[10px] text-text-secondary hover:text-text-primary px-1.5 py-0.5 rounded border border-card-border/30">📋 记录</button>
       </div>
 
-      {/* ===== 卡牌详情弹窗 ===== */}
-      {detailCard && (
-        <CardDetail card={detailCard} onClose={() => setDetailCard(null)} />
+      {/* 对手装备区 */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-2 overflow-hidden p-2" onClick={e => e.stopPropagation()}>
+        <EquipmentDisplay equipment={opponent.equipment} isOpponent />
+        <div className="flex items-center gap-1 flex-wrap">
+          {opponent.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} />)}
+        </div>
+        {recentPlayedCard && <PlayedCardOverlay key={recentPlayedCard.key} card={recentPlayedCard.card} playerName={recentPlayedCard.playerName} />}
+      </div>
+
+      {/* 中间操作区 */}
+      <div className="flex items-center justify-center gap-4 h-14 shrink-0 border-y border-card-border/20 bg-page-dark/10 px-4" onClick={e => e.stopPropagation()}>
+        <ActionBar isMyTurn={isMyTurn} onEndTurn={handleEndTurn} pending={pending} />
+        {isMyTurn && <DebugDrawButton onDebugDraw={debugDrawCard} />}
+        <ConsumptionCounter player={me} />
+      </div>
+
+      {/* 我方装备区 */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-2 overflow-hidden p-2" onClick={e => e.stopPropagation()}>
+        <EquipmentDisplay equipment={me.equipment} onUnequip={unequipCard} />
+        <div className="flex items-center gap-1 flex-wrap">
+          {me.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} />)}
+        </div>
+      </div>
+
+      {/* 底部：玩家信息 + 手牌数按钮 */}
+      <div className="shrink-0 flex items-center py-2 px-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          <PlayerInfo player={me} />
+          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${me.hand.length >= 7 ? 'bg-red-100/60 border-red-300/50 text-accent-attack' : 'bg-card-bg/60 border-card-border/40 text-text-primary'}`}>
+            🃏{me.hand.length}
+          </span>
+          <button onClick={() => openHandOverlay('my')}
+              className="text-[10px] text-text-secondary bg-card-bg/60 px-1.5 py-0.5 rounded border border-card-border/40 hover:bg-card-bg cursor-pointer">
+              展开
+            </button>
+        </div>
+      </div>
+
+      {/* ===== 手牌展开浮层 ===== */}
+      {handOverlay && (
+        <div className="fixed inset-0 z-35" onClick={() => closeHandOverlay()}>
+          {handOverlay === 'opponent' ? (
+            <div className={`absolute top-10 left-0 right-0 w-full transition-transform duration-300 ${overlayVisible ? 'translate-y-0' : '-translate-y-[calc(100%+72px)]'}`} onClick={e => e.stopPropagation()}>
+              <PlayerHand cards={opponent.hand} disabled={true} selectedCardId={null} onSelectCard={() => {}} hidden={true} />
+            </div>
+          ) : (
+            <div className={`absolute bottom-12 left-0 right-0 w-full transition-transform duration-300 ${overlayVisible ? 'translate-y-0' : 'translate-y-[calc(100%+72px)]'}`} onClick={e => e.stopPropagation()}>
+              <PlayerHand cards={me.hand} disabled={!isMyTurn || pending} selectedCardId={selectedCard?.id ?? null}
+                onSelectCard={handleSelectCard} hidden={false} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== 固定覆盖层 ===== */}
+
+      {/* 选中牌图鉴（左上） */}
+      {selectedCard && (
+        <div className="fixed right-2 top-12 z-40" onClick={e => e.stopPropagation()}>
+          <SelectedCardDetail card={selectedCard} />
+        </div>
+      )}
+
+      {/* 操作按钮（右边缘竖列） */}
+      {selectedCard && isMyTurn && (
+        <div className="fixed right-2 top-1/2 -translate-y-1/2 z-40" onClick={e => e.stopPropagation()}>
+          <div className="animate-fade-in">
+            <CardActionPanel card={selectedCard} isMyTurn={isMyTurn} pending={pending}
+            isExhausted={isCardExhausted} hasBrew={hasBrew}
+            onPlayOnOpponent={() => handlePlayCard(opponent.id)}
+            onPlayOnSelf={() => handlePlayCard(me.id)}
+            onDiscard={handleDiscard} onDeselect={doDeselect}
+            onBrewConvert={handleBrewConvert} />
+          </div>
+        </div>
+      )}
+
+      {/* 次数耗尽提示 */}
+      {selectedCard && isCardExhausted(selectedCard) && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in pointer-events-none">
+          <div className="bg-white border border-accent-equip/30 rounded-xl px-5 py-3 shadow-lg text-sm text-accent-equip font-medium">⚠️ 本回合行动/锦囊次数已用完</div>
+        </div>
+      )}
+
+      {/* 对局日志面板 */}
+      {showGameLog && <GameLogPanel log={gameState.log} onClose={() => setShowGameLog(false)} />}
+
+      {/* ===== 游戏结束弹窗 ===== */}
+      {showResult && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={handleAreaClick}>
+          <div className="bg-card-bg border border-card-border rounded-2xl p-8 text-center max-w-sm w-full mx-4 shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="text-5xl mb-4">{iWin ? '🎉' : '😢'}</div>
+            <h2 className="text-xl font-bold text-text-primary mb-2">{iWin ? '恭喜获胜！' : '战败'}</h2>
+            <p className="text-text-secondary text-sm mb-6">{iWin ? `你击败了 ${opponent.name}！` : `${opponent.name} 击败了你`}</p>
+            <button onClick={handleBackToLobby} className="w-full py-2.5 rounded-xl bg-accent-shield/15 border border-accent-shield/25 text-accent-shield font-semibold text-sm hover:bg-accent-shield/25 transition-colors">返回大厅</button>
+          </div>
+        </div>
       )}
 
       {/* ===== 侦测器：猜测权重弹窗 ===== */}
@@ -600,27 +587,6 @@ export default function Game() {
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
           <div className="bg-white border border-accent-equip/30 rounded-xl px-5 py-3 shadow-lg text-sm text-accent-equip font-medium">
             ⚠️ 本回合行动/锦囊次数已用完
-          </div>
-        </div>
-      )}
-
-      {/* ===== 游戏结束弹窗 ===== */}
-      {showResult && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={handleBgClick}>
-          <div className="bg-card-bg border border-card-border rounded-2xl p-8 text-center max-w-sm w-full mx-4 shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="text-5xl mb-4">{iWin ? '🎉' : '😢'}</div>
-            <h2 className="text-xl font-bold text-text-primary mb-2">
-              {iWin ? '恭喜获胜！' : '战败'}
-            </h2>
-            <p className="text-text-secondary text-sm mb-6">
-              {iWin ? `你击败了 ${opponent.name}！` : `${opponent.name} 击败了你`}
-            </p>
-            <button
-              onClick={handleBackToLobby}
-              className="w-full py-2.5 rounded-xl bg-accent-shield/15 border border-accent-shield/25 text-accent-shield font-semibold text-sm hover:bg-accent-shield/25 transition-colors"
-            >
-              返回大厅
-            </button>
           </div>
         </div>
       )}
