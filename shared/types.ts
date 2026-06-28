@@ -104,7 +104,7 @@ export interface PlayerState {
   poisonTriggerCountThisTurn: number;
   handLimitBonus: number;       // 手牌上限加成（村庄+4）
   actionLimitBonus: number;     // 行动上限加成（冰原+1）
-  shieldOnDiscardCount: number;   // 下界荒地：本回合丢弃盾牌触发次数
+  damageOnDiscardCount: number;   // 绑定诅咒丢弃次数限制
   lastPlayedCardDef: CardDef[];
   lastPlayedCardName: string;     // 本回合上一张打出的牌名
   lastPlayedCardEffects: EffectDef[];  // 上一张牌的效果（玻璃板用）

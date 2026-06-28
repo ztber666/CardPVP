@@ -7,7 +7,7 @@ import { CARDS, DEFAULT_HAND_LIMIT } from './constants';
 
 // 服务端通知 handler（由 server/index.ts 设置，通过 globalThis 跨模块共享）
 // target: 'all'=双方都显示 'self'=仅出牌者 'opponent'=仅对手
-function showMessage(msg: string, target: 'all' | 'self' | 'opponent' = 'all') {
+export function showMessage(msg: string, target: 'all' | 'self' | 'opponent' = 'all') {
   const h = (globalThis as any).__card_notify_handler;
   console.log('[Notify] showMessage:', msg, 'target:', target, 'handler:', !!h);
   if (h) h(msg, target);
@@ -52,11 +52,13 @@ export function drawCards(player: PlayerState, count: number): PlayerState {
       p.hand.push(drawn);
       // 丢弃事件：绑定诅咒
       const curseBuff = findBuff(p, BuffType.DamageOnDiscard);
-      if (curseBuff) damage(p, p, DamageType.Real, curseBuff.value, false);
+      if (curseBuff && p.damageOnDiscardCount < 2) {
+        damage(p, p, DamageType.Real, curseBuff.value, false);
+        p.damageOnDiscardCount += 1;
+      }
       // 丢弃事件：下界荒地
-      if (p.equipment?.field?.name === '下界荒地' && (p.shieldOnDiscardCount || 0) < 2) {
+      if (p.equipment?.field?.name === '下界荒地') {
         applyEffectToPlayer(p, BuffType.Shield, 1, undefined, p.equipment.field.id, p.id);
-        p.shieldOnDiscardCount = (p.shieldOnDiscardCount || 0) + 1;
       }
       // 从手牌移除
       p.hand = p.hand.filter(c => c.id !== drawn.id);
@@ -91,79 +93,6 @@ export function shuffleDeck(player: PlayerState): PlayerState {
   return p;
 }
 
-// ===== 卡牌是否可打出（前置校验） =====
-export function canPlayCard(player: PlayerState, card: CardDef, targetSelf?: boolean): { valid: boolean; reason?: string } {
-  // 检查手牌中是否有此卡
-  const cardInHand = player.hand.find(c => c.id === card.id);
-  if (!cardInHand) {
-    return { valid: false, reason: '卡牌不在手牌中' };
-  }
-
-  //烈焰粉：不满足条件无法打出
-  if (card.name === '烈焰粉' && !player.causePhysicalDamage) {
-    return { valid: false, reason: '上一张未造成物理伤害，无法打出烈焰粉' };
-  }
-
-  //附魔台：不满足条件无法打出
-  if (card.name === '附魔台') {
-    const checkTypes = [CostType.Heal, CostType.Attack, CostType.Buff, CostType.Debuff, CostType.Event];
-    const played = player.playedCardTypesThisTurn || [];
-    const matchedTypes = checkTypes.filter(ct => played.includes(ct));
-    if (matchedTypes.length < 4) {
-      return { valid: false, reason: '本回合未打出4种类型牌，无法打出附魔台' };
-    }
-  }
-
-  //玻璃板：复制行动牌时检查消耗次数
-  if (card.name === '玻璃板' && player.lastPlayedCardCostType === CostType.Action && (player.actionStrategyCountThisTurn || 0) >= (3 + (player.actionLimitBonus || 0))) {
-    return { valid: false, reason: '本回合行动/锦囊牌已达上限' };
-  }
-
-  //运输矿车：牌组中剩余牌数不足4张时无法打出
-  if (card.name === '运输矿车' && player.deck.length < 4) {
-    return { valid: false, reason: '牌组剩余牌数不足4张，无法打出运输矿车' };
-  }
-
-  // 行动封锁：无法使用行动卡/回血卡/攻击卡
-  const isActionType = card.costType === CostType.Action || card.costType === CostType.Heal || card.costType === CostType.Attack;
-  if (isActionType && player.buffs.some(b => b.buffType === BuffType.LockAction)) {
-    return { valid: false, reason: '被水桶封锁，本回合无法使用' };
-  }
-
-  // 锦囊封锁：无法使用锦囊卡
-  if (card.costType === CostType.Strategy && player.buffs.some(b => b.buffType === BuffType.LockStrategy)) {
-    return { valid: false, reason: '被水桶封锁，本回合无法使用锦囊牌' };
-  }
-
-  // 装备/武器/场地卡只能对自己使用
-  if (targetSelf === false && (card.costType === CostType.Equip || card.costType === CostType.Weapon || card.costType === CostType.Field)) {
-    return { valid: false, reason: '装备卡只能对自己使用' };
-  }
-
-  // 所有行动牌（含回血/攻击类）+ 锦囊牌 → 先检查共享池
-  const subtype = getCardSubtype(card);
-  const isPoolCard = card.costType === CostType.Action || card.costType === CostType.Strategy;
-  if (isPoolCard) {
-    const poolLimit = 5 + (player.actionLimitBonus || 0);
-    if ((player.actionStrategyCountThisTurn || 0) >= poolLimit) {
-      return { valid: false, reason: `本回合行动/锦囊牌已达上限(${poolLimit}张)` };
-    }
-  }
-  // 回血类/攻击类：各1张/回合（额外限制）
-  if (subtype === 'heal' && (player.healCountThisTurn || 0) >= 1) {
-    if (player.equipment?.field?.name === '冰原' && (player.attackCountThisTurn || 0) < 1) {
-      return { valid: true }; // 冰原场地加成：回血类和攻击类消耗次数互通
-    } else return { valid: false, reason: '每回合最多出1张回血类卡牌' };
-  }
-  if (subtype === 'attack' && (player.attackCountThisTurn || 0) >= 1) {
-    if (player.equipment?.field?.name === '冰原' && (player.healCountThisTurn || 0) < 1) {
-      return { valid: true }; // 冰原场地加成：回血类和攻击类消耗次数互通
-    } else return { valid: false, reason: '每回合最多出1张攻击类卡牌' };
-  }
-
-  return { valid: true };
-}
-
 // ===== 从手牌移除卡牌 =====
 function removeFromHand(player: PlayerState, cardId: string): PlayerState {
   const p = deepClone(player);
@@ -186,7 +115,7 @@ export function heal(source: PlayerState, target: PlayerState, number: number) {
 
   //凋零：消耗1层，减少1点回血
   const witherStacks = getBuffStacks(target, BuffType.Wither);
-  if (witherStacks > 0 && target.equipment?.equip?.name !== "钻石胸甲") {
+  if (witherStacks > 0) {
     const consumed = Math.min(witherStacks, healAmt);
     if(consumed > 0) consumeInPlace(target, BuffType.Wither, consumed);
     healAmt -= consumed;
@@ -366,19 +295,9 @@ export function applyCard(
     }
   }
 
-  // 保存当前 lastPlayedCard（即上一张牌）供后续参考
-  const prevCardName = p.lastPlayedCardName;
-  const prevCardEffects = p.lastPlayedCardEffects.map(e => ({ ...e }));
-  const prevCardCostType = p.lastPlayedCardCostType;
-
   // 更新上一张牌为当前这张（玻璃板本身不覆盖）
-  if (card.name !== '玻璃板' && card.name !== '烈焰粉') {
-    p.lastPlayedCardDef.push(card);
-    p.lastPlayedCardName = card.name;
-    p.lastPlayedCardEffects = card.effects.map(e => ({ ...e }));
-    p.lastPlayedCardCostType = card.costType;
-  }
-
+  if (card.name !== '玻璃板' && card.name !== '烈焰粉') p.lastPlayedCardDef.push(card);
+  
   //处理烈焰粉判断逻辑
   if(card.name !== '烈焰粉' && p.causePhysicalDamage) p.causePhysicalDamage = false;
 
@@ -558,7 +477,7 @@ export function applyCard(
       // 每存在一种状态回1点血
       const target = isSelfTarget ? p : t;
       // 统计不同的buff类型数量（排除特殊类型）
-      const buffTypes = new Set(target.buffs.map(b => b.buffType));
+      const buffTypes = new Set(p.buffs.map(b => b.buffType));
       if (buffTypes.size > 0) {
         heal(p, target, buffTypes.size);
         msgs.push(`${cardName}为${targetLabel}回复了${buffTypes.size}点血量（${buffTypes.size}种状态）`);

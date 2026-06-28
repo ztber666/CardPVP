@@ -1,6 +1,6 @@
 import { GameState, GamePhase, CardDef } from '../../shared/types';
 import {
-  createGame, initGame, startTurn, endTurn, playCard, PlayCardResult,
+  createGame, initGame, startTurn, endTurn, playCard,
   discardFromHand, unequipCard, handleGuessWeight, handleDraftPick,
   handleBucketChoice, handleEquipChoice, handleBrewConversion,
 } from '../../shared/gameEngine';
@@ -83,6 +83,7 @@ export function removePlayer(socketId: string): { roomId: string; playerId: stri
 
   const room = rooms.get(roomInfo.roomId);
   if (room) {
+    if (room.players.length > 0) return roomInfo;
     room.players = room.players.filter(p => p.socketId !== socketId);
     if (room.players.length === 0) {
       rooms.delete(roomInfo.roomId);
@@ -331,6 +332,8 @@ export function startRoomCleanup(): void {
   setInterval(() => {
     const now = Date.now();
     for (const [roomId, room] of rooms.entries()) {
+      // 原逻辑：人数 < 2 且 游戏未开始 且 超时 -> 删除
+      // 这会导致只有房主一个人在等待时，超时后房间被删
       if (room.players.length < 2 && room.gameState === null && (now - room.createdAt) > ROOM_TTL) {
         console.log(`[清理] 过期房间 ${roomId}`);
         rooms.delete(roomId);

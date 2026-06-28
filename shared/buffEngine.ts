@@ -1,9 +1,9 @@
+import { displayMessage } from '../client/src/store/notificationStore';
 import {  damage, DamageType, heal } from './cardEngine';
 import { PlayerState, ActiveBuff, BuffType } from './types';
 
 /**
  * Buff 引擎 — 纯函数，事件驱动
- * 每个计算函数接收状态，返回新状态（不修改原对象）
  */
 
 // ===== 工具函数 =====
@@ -39,12 +39,18 @@ export function applyEffectToPlayer(
   // 非正数层数/强度时跳过
   if (stacks <= 0 || value <= 0) return player;
 
+  // 钻石胸甲
+  if(player.equipment?.equip?.name === '钻石胸甲' && buffType === BuffType.Shield) {
+    heal(player, player, value);
+    displayMessage(`${player.name}装备了钻石胸甲，${value}点护盾转化为血量`);
+    return;
+  }
   // 同类型且剩余回合数相同 → 合并层数
   const existing = player.buffs.find(b => b.buffType === buffType && b.remainingTurns === duration);
   if (existing) {
     existing.stacks += stacks;
     existing.value = Math.max(existing.value, value);
-    return player;
+    return;
   }
 
   player.buffs.push({

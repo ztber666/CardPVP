@@ -2,13 +2,14 @@ import {
   GameState, PlayerState, CardDef, GamePhase,
   GameLogEntry, PlayCardAction, BuffType,
 } from './types';
-import { deepClone, applyEffectToPlayer, getBuffStacks } from './buffEngine';
-import { drawCards, shuffleDeck, canPlayCard, applyCard, damage, DamageType } from './cardEngine';
+import { deepClone, applyEffectToPlayer, getBuffStacks, findBuff } from './buffEngine';
+import { drawCards, shuffleDeck, applyCard, damage, DamageType, showMessage } from './cardEngine';
 import { processTurnStartBuffs, processTurnEndBuffs } from './buffEngine';
 import {
   DEFAULT_MAX_HP, INITIAL_DRAW_COUNT, TURN_DRAW_COUNT,
   buildTestDeck, CARDS,
 } from './constants';
+import { displayMessage } from '../client/src/store/notificationStore';
 
 // ===== 游戏创建 =====
 export function createGame(
@@ -31,7 +32,7 @@ export function createGame(
         poisonTriggerCountThisTurn: 0,
         handLimitBonus: 0,
         actionLimitBonus: 0,
-        shieldOnDiscardCount: 0,
+        damageOnDiscardCount: 0,
         lastPlayedCardDef: [],
         lastPlayedCardName: '',
         lastPlayedCardEffects: [],
@@ -40,7 +41,7 @@ export function createGame(
         canEnchantDiscard: false,
         pendingGuessCardId: '',
         pendingGuessCardWeight: 0,
-    pendingGuessCardName: '',
+        pendingGuessCardName: '',
         playedCardTypesThisTurn: [],
         draftCards: [],
         draftPlayerPick: 0,
@@ -62,7 +63,7 @@ export function createGame(
         poisonTriggerCountThisTurn: 0,
         handLimitBonus: 0,
         actionLimitBonus: 0,
-        shieldOnDiscardCount: 0,
+        damageOnDiscardCount: 0,
         lastPlayedCardDef: [],
         lastPlayedCardName: '',
         lastPlayedCardEffects: [],
@@ -71,6 +72,7 @@ export function createGame(
         canEnchantDiscard: false,
         pendingGuessCardId: '',
         pendingGuessCardWeight: 0,
+        pendingGuessCardName: '',
         playedCardTypesThisTurn: [],
         draftCards: [],
         draftPlayerPick: 0,
@@ -113,7 +115,7 @@ function refreshEquipment(player: PlayerState): PlayerState {
   // 重置加成字段
   p.handLimitBonus = 0;
   p.actionLimitBonus = 0;
-  p.shieldOnDiscardCount = 0;
+  p.damageOnDiscardCount = 0;
 
   // 检查场地卡加成
   if (p.equipment.field?.name === '村庄') p.handLimitBonus = 4;
@@ -137,7 +139,7 @@ export function startTurn(state: GameState): GameState {
   player.actionStrategyCountThisTurn = 0;
   player.poisonTriggerCountThisTurn = 0;
   player.jungleHpUpTriggered = false;
-  player.shieldOnDiscardCount = 0;
+  player.damageOnDiscardCount = 0;
   player.playedCardTypesThisTurn = [];
   // 回合开始 buff 已在 endTurn 完整轮变更时处理
 
@@ -172,13 +174,6 @@ export function playCard(state: GameState, action: PlayCardAction, playerId: str
   const card = player.hand.find(c => c.id === action.cardId);
   if (!card) {
     return { success: false, gameState: state, error: '卡牌不在手牌中', messages: [] };
-  }
-
-  // 校验能否打出
-  const targetSelf = action.targetId === playerId;
-  const check = canPlayCard(player, card, targetSelf);
-  if (!check.valid) {
-    return { success: false, gameState: state, error: check.reason, messages: [] };
   }
 
   // 执行卡牌效果
@@ -231,6 +226,32 @@ export function endTurn(state: GameState): GameState {
   return s;
 }
 
+export function handleDiscardBuffs(player: PlayerState, s?: GameState) {
+  
+  // 绑定诅咒：丢弃牌时受伤害
+  const curseStack = getBuffStacks(player, BuffType.DamageOnDiscard);
+  if (curseStack > 0 && player.damageOnDiscardCount < 1) {
+    damage(player, player, DamageType.Real, curseStack, false);
+    player.damageOnDiscardCount += 1;
+    showMessage(`丢弃牌时受到${curseStack}点绑定诅咒伤害`, 'self');
+    s!.log.push({
+      turnNumber: s!.turnNumber,
+      message: `${player.name}丢弃牌时受到${curseStack}点绑定诅咒伤害`,
+      timestamp: Date.now(),
+    });
+  }
+
+  // 下界荒地：丢弃牌时获得1点护盾（每回合限2次）
+  if (player.equipment?.field?.name === '下界荒地') {
+    applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id, player.id);
+    s!.log.push({
+      turnNumber: s!.turnNumber,
+      message: `${player.name}丢弃牌时获得1点护盾（下界荒地）`,
+      timestamp: Date.now(),
+    });
+  }
+
+}
 // ===== 丢弃手牌 =====
 export function discardFromHand(state: GameState, playerId: string, cardId: string): GameState {
   let s = deepClone(state);
@@ -270,27 +291,7 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
     });
   }
 
-  // 绑定诅咒：丢弃牌时受伤害
-  const curseStack = getBuffStacks(player, BuffType.DamageOnDiscard);
-  if (curseStack > 0) {
-    damage(player, player, DamageType.Real, curseStack, false);
-    s.log.push({
-      turnNumber: s.turnNumber,
-      message: `${player.name}丢弃牌时受到${curseStack}点绑定诅咒伤害`,
-      timestamp: Date.now(),
-    });
-  }
-
-  // 下界荒地：丢弃牌时获得1点护盾（每回合限2次）
-  if (player.equipment?.field?.name === '下界荒地' && player.shieldOnDiscardCount < 2) {
-    applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id, player.id);
-    player.shieldOnDiscardCount += 1;
-    s.log.push({
-      turnNumber: s.turnNumber,
-      message: `${player.name}丢弃牌时获得1点护盾（下界荒地）`,
-      timestamp: Date.now(),
-    });
-  }
+  handleDiscardBuffs(player, s);
 
   s.players[idx] = player;
   s.players[1 - idx] = target;
@@ -323,27 +324,7 @@ export function unequipCard(state: GameState, playerId: string, slot: string): G
   // 装备卸下时直接丢弃（进入弃牌堆），触发丢弃事件
   player.discardPile.push(card);
 
-  // 绑定诅咒：丢弃牌时受伤害
-  const curseStack = getBuffStacks(player, BuffType.DamageOnDiscard);
-  if (curseStack > 0) {
-    damage(player, player, DamageType.Real, curseStack, false);
-    s.log.push({
-      turnNumber: s.turnNumber,
-      message: `${player.name}丢弃牌时受到${curseStack}点绑定诅咒伤害`,
-      timestamp: Date.now(),
-    });
-  }
-
-  // 下界荒地：丢弃牌时获得1点护盾（每回合限2次）
-  if (player.equipment?.field?.name === '下界荒地' && player.shieldOnDiscardCount < 2) {
-    applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id, player.id);
-    player.shieldOnDiscardCount += 1;
-    s.log.push({
-      turnNumber: s.turnNumber,
-      message: `${player.name}丢弃牌时获得1点护盾（下界荒地）`,
-      timestamp: Date.now(),
-    });
-  }
+  handleDiscardBuffs(player, s);
 
   s.players[idx] = player;
 
@@ -506,7 +487,7 @@ export function handleBucketChoice(state: GameState, playerId: string, lockType:
 
 // ===== 诡异钓竿：处理装备丢弃 =====
 export function handleEquipChoice(state: GameState, playerId: string, slot: string): GameState {
-  const s = deepClone(state);
+  let s = deepClone(state);
   const idx = s.players.findIndex(p => p.id === playerId);
   if (idx === -1) return s;
 
@@ -523,19 +504,15 @@ export function handleEquipChoice(state: GameState, playerId: string, slot: stri
     return s;
   }
 
-  delete opponent.equipment[slotKey];
-  opponent.discardPile.push(card);
-  opponent.buffs = opponent.buffs.filter(b => b.sourceCardId !== card.id);
-  player.pendingEquipChoice = '';
-
   s.log.push({
-    turnNumber: s.turnNumber,
-    message: `${opponent.name}的${card.name}被丢弃`,
-    timestamp: Date.now(),
+   turnNumber: s.turnNumber,
+   message: `诡异钓竿触发！`,
+   timestamp: Date.now() 
   });
-
+  s = unequipCard(s, opponent.id, slot);
+  player.pendingEquipChoice = '';
   s.players[idx] = player;
-  s.players[oppIdx] = opponent;
+
   return s;
 }
 

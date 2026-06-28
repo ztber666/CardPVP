@@ -197,12 +197,11 @@ export default function Game() {
 
   // 出牌动画（双方）
   useEffect(() => {
-    const who = opponent?.lastPlayedCardDef ? opponent : me;
-    if (!who?.lastPlayedCardDef?.length) return;
-    const latest = who.lastPlayedCardDef[who.lastPlayedCardDef.length - 1];
+    if (!opponent?.lastPlayedCardDef?.length || isMyTurn) return;
+    const latest = opponent.lastPlayedCardDef[opponent.lastPlayedCardDef.length - 1];
     if (latest?.name) {
       playedCardKey.current += 1;
-      setRecentPlayedCard({ card: latest, playerName: who.name, key: playedCardKey.current });
+      setRecentPlayedCard({ card: latest, playerName: opponent.name, key: playedCardKey.current });
       if (playedCardTimer.current) clearTimeout(playedCardTimer.current);
       playedCardTimer.current = setTimeout(() => setRecentPlayedCard(null), 2200);
     }
@@ -367,7 +366,7 @@ export default function Game() {
       <div className="flex-1 flex flex-col items-center justify-center gap-2 overflow-hidden p-2" onClick={e => e.stopPropagation()}>
         <EquipmentDisplay equipment={opponent.equipment} isOpponent />
         <div className="flex items-center gap-1 flex-wrap">
-          {opponent.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} />)}
+          {opponent.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} compactMode={opponent.buffs.length > 5} />)}
         </div>
         {recentPlayedCard && <PlayedCardOverlay key={recentPlayedCard.key} card={recentPlayedCard.card} playerName={recentPlayedCard.playerName} />}
       </div>
@@ -383,7 +382,7 @@ export default function Game() {
       <div className="flex-1 flex flex-col items-center justify-center gap-2 overflow-hidden p-2" onClick={e => e.stopPropagation()}>
         <EquipmentDisplay equipment={me.equipment} onUnequip={unequipCard} />
         <div className="flex items-center gap-1 flex-wrap">
-          {me.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} />)}
+          {me.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} compactMode={me.buffs.length > 5} />)}
         </div>
       </div>
 
