@@ -7,6 +7,7 @@ import {
 import { validatePlayCard, validateEndTurn } from '../../shared/validation';
 import { deepClone } from '../../shared/buffEngine';
 import { CARDS } from '../../shared/constants';
+import { addCardToHand } from '../../shared/cardEngine';
 
 /**
  * 房间管理
@@ -26,8 +27,8 @@ interface Room {
   rematchRequestedBy?: string; // playerId of who requested a rematch
 }
 
-const rooms = new Map<string, Room>();
-const socketToRoom = new Map<string, { roomId: string; playerId: string }>();
+export const rooms = new Map<string, Room>();
+export const socketToRoom = new Map<string, { roomId: string; playerId: string }>();
 
 // ===== 房间操作 =====
 export function createRoom(socketId: string, playerName: string): { roomId: string; playerId: string } | null {
@@ -265,7 +266,7 @@ export function handleDebugDrawCard(socketId: string, cardIdInput: string): { su
   const state = deepClone(room.gameState);
   const idx = state.players.findIndex(p => p.id === roomInfo.playerId);
   if (idx === -1) return { success: false, error: '玩家不存在' };
-  state.players[idx].hand.push(newCard);
+  addCardToHand(state.players[idx], newCard);
   room.gameState = state;
   return { success: true, gameState: state };
 }
@@ -340,4 +341,28 @@ export function startRoomCleanup(): void {
       }
     }
   }, 30000);
+}
+// 根据 playerId 查找所在的房间和玩家对象
+export function getRoomByPlayerId(playerId: string): { room: Room; player: RoomPlayer } | undefined {
+    for (const room of rooms.values()) {
+        const player = room.players.find(p => p.id === playerId);
+        if (player) return { room, player };
+    }
+    return undefined;
+}
+
+// 更新玩家的 socketId，并重新绑定 socketToRoom 映射
+export function updatePlayerSocket(playerId: string, newSocketId: string): boolean {
+    const data = getRoomByPlayerId(playerId);
+    if (!data) return false;
+    
+    const { room, player } = data;
+    
+    // 更新房间内的 socketId
+    player.socketId = newSocketId;
+    
+    // 更新映射表
+    socketToRoom.set(newSocketId, { roomId: room.id, playerId });
+    
+    return true;
 }

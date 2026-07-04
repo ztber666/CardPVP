@@ -27,6 +27,10 @@ import {
   handleRematchRequest,
   handleRematchAccept,
   handleRematchDecline,
+  socketToRoom,
+  rooms,
+  getRoomByPlayerId,
+  updatePlayerSocket,
 } from './rooms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -416,12 +420,64 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ===== 断线处理 =====
   socket.on('disconnect', () => {
     console.log(`[断线] ${socket.id}`);
-    const roomInfo = removePlayer(socket.id);
+    const roomInfo = getRoomBySocketId(socket.id);
+    
     if (roomInfo) {
-      io.to(roomInfo.roomId).emit('opponent_left');
+        const room = getRoom(roomInfo.roomId);
+        if (room) {
+            // 找到该玩家并清空 socketId，而不是直接从数组删除
+            const player = room.players.find(p => p.id === roomInfo.playerId);
+            if (player) {
+                player.socketId = ""; // 标记为离线
+            }
+            
+            // 清除映射关系
+            socketToRoom.delete(socket.id);
+            
+            // 检查房间是否彻底没人了（如果所有人 socketId 都为空，才删除房间）
+            const activePlayers = room.players.filter(p => p.socketId !== "");
+            if (activePlayers.length === 0) {
+                rooms.delete(roomInfo.roomId);
+                console.log(`[清理] 房间 ${roomInfo.roomId} 已清空`);
+            } else {
+                // 通知对手该玩家断线
+                io.to(roomInfo.roomId).emit('opponent_left');
+            }
+        }
+    }
+  });
+  // ===== 新增：重连处理 =====
+  socket.on('rejoin', ({ playerId, roomId }: { playerId: string, roomId: string }, callback) => {
+    console.log(`[重连] 尝试重连玩家 ${playerId} 到房间${roomId}`);
+    
+    // 1. 验证玩家和房间是否匹配
+    const data = getRoomByPlayerId(playerId);
+    
+    if (data && data.room.id === roomId) {
+        const { room } = data;
+        
+        // 2. 更新该玩家的 socketId
+        const success = updatePlayerSocket(playerId, socket.id);
+        
+        if (success) {
+            // 3. 重新加入 Socket.IO 房间
+            socket.join(roomId);
+            
+            // 4. 回传当前游戏状态给客户端
+            callback({ success: true, gameState: room.gameState });
+            
+            // 5. 通知房间内其他人（对手）该玩家重连成功
+            // 为了简单，这里可以复用 opponent_left 的反向逻辑或者新增通知，这里暂时仅服务端记录
+            console.log(`[重连] 玩家 ${playerId} 重连成功`);
+
+            io.to(roomId).emit('player_joined', { playerCount: room.players.length });
+        } else {
+            callback({ success: false, error: '重连更新失败' });
+        }
+    } else {
+        callback({ success: false, error: '房间或玩家不存在' });
     }
   });
 });

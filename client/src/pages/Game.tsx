@@ -21,7 +21,7 @@ import BuffBadge from '../components/BuffBadge';
 
 export default function Game() {
   const { playCard, endTurn, discardCard, unequipCard, disconnect, guessWeight, draftPick, bucketChoice, equipChoice, brewChoice, blazeDiscard, debugDrawCard, rematchRequest, rematchAccept, rematchDecline } = useSocket();
-  const { gameState, player, isMyTurn, rematchState, rematchRequesterName } = useGameStore();
+  const { gameState, player, isMyTurn, rematchState, rematchRequesterName, opponentDisconnected } = useGameStore();
 
   const [selectedCard, setSelectedCard] = useState<CardDef | null>(null);
   const [pending, setPending] = useState(false);
@@ -349,6 +349,15 @@ export default function Game() {
     <div className="h-screen flex flex-col bg-page-bg overflow-hidden" onClick={handleAreaClick}>
       <NotificationToast />
 
+      {/* ===== 新增：对手掉线遮罩 ===== */}
+        {opponentDisconnected && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center text-white pointer-events-none">
+                <div className="text-5xl mb-4 animate-bounce">⚠️</div>
+                <div className="text-2xl font-bold mb-2">对手已断开连接</div>
+                <div className="text-sm opacity-80">等待对方重连中...</div>
+            </div>
+      )}
+
       {/* 顶部对手栏 */}
       <div className="flex items-center justify-between h-12 shrink-0 px-4 border-b border-card-border/30 bg-page-dark/20" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2">
@@ -380,10 +389,10 @@ export default function Game() {
 
       {/* 我方装备区 */}
       <div className="flex-1 flex flex-col items-center justify-center gap-2 overflow-hidden p-2" onClick={e => e.stopPropagation()}>
-        <EquipmentDisplay equipment={me.equipment} onUnequip={unequipCard} />
         <div className="flex items-center gap-1 flex-wrap">
           {me.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} compactMode={me.buffs.length > 5} />)}
         </div>
+        <EquipmentDisplay equipment={me.equipment} onUnequip={unequipCard} />
       </div>
 
       {/* 底部：玩家信息 + 手牌数按钮 */}

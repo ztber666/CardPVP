@@ -12,6 +12,7 @@ export type RematchState = null | 'requested' | 'invited' | 'declined';
 interface GameStore {
   // 连接状态
   connected: boolean;
+  opponentDisconnected: boolean; // 新增：对手是否断线
 
   // 玩家信息
   player: PlayerInfo | null;
@@ -27,6 +28,7 @@ interface GameStore {
 
   // 操作
   setConnected: (connected: boolean) => void;
+  setOpponentDisconnected: (status: boolean) => void; // 新增
   setPlayer: (player: PlayerInfo) => void;
   setGameState: (state: GameState | null) => void;
   setWaitingForOpponent: (waiting: boolean) => void;
@@ -42,6 +44,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   waitingForOpponent: false,
   rematchState: null,
   rematchRequesterName: null,
+  opponentDisconnected: false, // 新增：对手是否断线
 
   setConnected: (connected) => set({ connected }),
 
@@ -67,6 +70,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     rematchState: state,
     rematchRequesterName: requesterName !== undefined ? requesterName : null,
   }),
+
+  setOpponentDisconnected: (status) => set({ opponentDisconnected: status }),
 
   reset: () => set({
     player: null,

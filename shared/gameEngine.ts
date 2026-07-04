@@ -3,7 +3,7 @@ import {
   GameLogEntry, PlayCardAction, BuffType,
 } from './types';
 import { deepClone, applyEffectToPlayer, getBuffStacks, findBuff } from './buffEngine';
-import { drawCards, shuffleDeck, applyCard, damage, DamageType, showMessage } from './cardEngine';
+import { drawCards, shuffleDeck, applyCard, damage, DamageType, showMessage, addCardToHand } from './cardEngine';
 import { processTurnStartBuffs, processTurnEndBuffs } from './buffEngine';
 import {
   DEFAULT_MAX_HP, INITIAL_DRAW_COUNT, TURN_DRAW_COUNT,
@@ -282,7 +282,6 @@ export function discardFromHand(state: GameState, playerId: string, cardId: stri
 
   //烈焰棒
   if(player.equipment?.weapon?.name === '烈焰棒' && player.causePhysicalDamage) {
-    player.causePhysicalDamage = false;
     damage(player, target, DamageType.Fire, 2, true);
     s.log.push({
       turnNumber: s.turnNumber,
@@ -440,7 +439,7 @@ export function handleDraftPick(state: GameState, playerId: string, cardIndex: n
 
   // 牌给当前选牌的玩家
   const picked = owner.draftCards[cardIndex];
-  s.players[pickerIdx].hand.push(picked);
+  addCardToHand(s.players[pickerIdx], picked);
   owner.draftPickCount += 1;
   if (!owner.draftPickedBy) owner.draftPickedBy = {};
   owner.draftPickedBy[cardIndex] = s.players[pickerIdx].name;

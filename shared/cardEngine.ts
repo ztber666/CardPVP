@@ -4,6 +4,7 @@ import {
 } from './types';
 import { deepClone, applyEffectToPlayer, getBuffStacks, findBuff } from './buffEngine';
 import { CARDS, DEFAULT_HAND_LIMIT } from './constants';
+import { handleDiscardBuffs } from './gameEngine';
 
 // 服务端通知 handler（由 server/index.ts 设置，通过 globalThis 跨模块共享）
 // target: 'all'=双方都显示 'self'=仅出牌者 'opponent'=仅对手
@@ -28,56 +29,50 @@ export function getCardSubtype(card: CardDef): 'heal' | 'attack' | null {
   return null;
 }
 
-// ===== 摸牌 =====
-export function drawCards(player: PlayerState, count: number): PlayerState {
-  let p = deepClone(player);
-  const handLimit = DEFAULT_HAND_LIMIT + (p.handLimitBonus || 0);
-  const equippedCount = [p.equipment.equip, p.equipment.weapon, p.equipment.field].filter(Boolean).length;
-  let drawnCount = 0;
-  for (let i = 0; i < count; i++) {
-    if (p.deck.length === 0) {
-      // 牌组空了：弃牌堆洗回牌组
-      if (p.discardPile.length === 0) break;
-      p.deck = [...p.discardPile];
-      p.discardPile = [];
-      // Fisher-Yates 洗牌
-      for (let j = p.deck.length - 1; j > 0; j--) {
-        const k = Math.floor(Math.random() * (j + 1));
-        [p.deck[j], p.deck[k]] = [p.deck[k], p.deck[j]];
-      }
-    }
-    if (p.hand.length + equippedCount >= handLimit) {
+//将卡牌添加到手牌
+export function addCardToHand(player: PlayerState, card: CardDef) {
+  const handLimit = DEFAULT_HAND_LIMIT + (player.handLimitBonus || 0);
+  const equippedCount = [player.equipment.equip, player.equipment.weapon, player.equipment.field].filter(Boolean).length;
+  // 4. 手牌上限判断
+    if (player.hand.length + equippedCount >= handLimit) {
       // 手牌已达上限：先加入手牌再丢弃（触发丢弃事件）
-      const drawn = p.deck.shift()!;
-      p.hand.push(drawn);
-      // 丢弃事件：绑定诅咒
-      const curseBuff = findBuff(p, BuffType.DamageOnDiscard);
-      if (curseBuff && p.damageOnDiscardCount < 2) {
-        damage(p, p, DamageType.Real, curseBuff.value, false);
-        p.damageOnDiscardCount += 1;
-      }
-      // 丢弃事件：下界荒地
-      if (p.equipment?.field?.name === '下界荒地') {
-        applyEffectToPlayer(p, BuffType.Shield, 1, undefined, p.equipment.field.id, p.id);
-      }
+      player.hand.push(card);
+
+      handleDiscardBuffs(player); // 触发丢弃事件，处理相关buff
+
       // 从手牌移除
-      p.hand = p.hand.filter(c => c.id !== drawn.id);
-      p.discardPile.push(drawn);
+      player.hand = player.hand.filter(c => c.id !== card.id);
     } else {
-      const drawn = p.deck.shift()!;
-      p.hand.push(drawn);
-      drawnCount++;
+      // 正常加入手牌
+      player.hand.push(card);
     }
-  }
 
   // 陷阱箱：摸牌时获得凋零
-  const witherOnDraw = getBuffStacks(p, BuffType.WitherOnDraw);
-  if (witherOnDraw > 0 && drawnCount > 0) {
-    for (let i = 0; i < drawnCount; i++) {
-      applyEffectToPlayer(p, BuffType.Wither, 1, undefined, 'wither_on_draw', p.id);
-    }
+  const witherOnDraw = getBuffStacks(player, BuffType.WitherOnDraw);
+  if (witherOnDraw > 0) {
+      applyEffectToPlayer(player, BuffType.Wither, 1, undefined, 'wither_on_draw', player.id);
   }
 
+}
+
+export function drawCards(player: PlayerState, count: number): PlayerState {
+  let p = deepClone(player);
+
+  for (let i = 0; i < count; i++) {
+    // 2. 随机选择一张牌（索引）
+    const randomIndex = Math.floor(Math.random() * p.deck.length);
+    const sourceCard = p.deck[randomIndex];
+
+    // 3. 复制这张牌到手牌，并赋予新的唯一 ID（防止 ID 冲突）
+    const drawn: CardDef = {
+      ...sourceCard,
+      id: `${sourceCard.id}_drawn_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    };
+
+    addCardToHand(p, drawn);
+
+    // 注意：这里没有执行 p.deck.splice 或 shift，原牌堆不变
+  }
   return p;
 }
 
@@ -141,9 +136,8 @@ export function heal(source: PlayerState, target: PlayerState, number: number) {
   target.hp = Math.min(target.maxHp, target.hp + healAmt);
 
   //中毒：回血后扣3HP（每回合限2次）
-  if (getBuffStacks(target, BuffType.Poison) > 0 && target.poisonTriggerCountThisTurn < 2) {
+  if (getBuffStacks(target, BuffType.Poison) > 0) {
     damage(target, target, DamageType.Real, 3, false);
-    target.poisonTriggerCountThisTurn += 1;
   }
   return healAmt;
 }
@@ -200,12 +194,12 @@ export function damage(source: PlayerState, target: PlayerState, type: DamageTyp
     //滴水石锥（物伤回血）
     if (source.equipment?.weapon?.name === '滴水石锥') heal(source, source, 1);
     //烈焰棒：标记触发条件
-    if (source.equipment?.weapon?.name === '烈焰棒' && isCard) {
+    if (source.equipment?.weapon?.name === '烈焰棒') {
       source.causePhysicalDamage = true;
       showMessage('丢弃一张牌可造成两点火焰伤害', "self")
     }
     //烈焰粉提示
-    if(source.hand.filter(card => card.name === '烈焰粉').length > 0 && isCard) {
+    if(source.hand.filter(card => card.name === '烈焰粉').length > 0) {
       source.causePhysicalDamage = true;
       showMessage('打出烈焰粉可额外造成2点火焰伤害', "self");
     }
@@ -309,15 +303,13 @@ export function applyCard(
                   : card.costType === CostType.Weapon ? 'weapon' : 'field';
     if (p.equipment[slotKey]) {
       const oldCard = p.equipment[slotKey]!;
-      p.discardPile.push(oldCard);
+      handleDiscardBuffs(p); // 触发丢弃事件，处理相关buff
       msgs.push(`${cardName}替换了已有的${oldCard.name}，${oldCard.name}进入废牌堆`);
       p.buffs = p.buffs.filter(b => b.sourceCardId !== oldCard.id);
     }
     const modifiedCard = { ...card, sourcePlayerId: p.id }; // 记录装备来源玩家ID，供buff计算时参考
     p.equipment[slotKey] = modifiedCard;
     msgs.push(`${cardName}已装备`);
-  } else {
-    p.discardPile.push(card);
   }
 
   // ===== 逐条执行效果 =====
@@ -403,8 +395,8 @@ export function applyCard(
       const fireworkIdx = target.hand.findIndex(c => c.name === '烟花');
       if (fireworkIdx !== -1) {
         const [discarded] = target.hand.splice(fireworkIdx, 1);
-        target.discardPile.push(discarded);
-                if (isSelfTarget) p = target; else t = target;
+        handleDiscardBuffs(target);
+        if (isSelfTarget) p = target; else t = target;
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
       } else {
         applyEffectToPlayer(target, BuffType.Horde, 1, 2, card.id, p.id);
@@ -424,22 +416,13 @@ export function applyCard(
 
     } else if (effect.buffType === BuffType.StealCard) {
       // 抽取目标一张手牌
-      const target = isSelfTarget ? p : t;
-      if (target.hand.length > 0) {
-        const idx = Math.floor(Math.random() * target.hand.length);
-        const [stolen] = target.hand.splice(idx, 1);
-        if (isSelfTarget) {
-          p.hand.push(stolen);
-          msgs.push(`${cardName}从目标手中抽取了${stolen.name}`);
-        } else {
-          // 从对手抽牌给自己
-          t = target;
-          p.hand.push(stolen);
-          msgs.push(`${cardName}从${targetLabel}手中抽取了${stolen.name}`);
-        }
+      if (t.hand.length > 0) {
+        const idx = Math.floor(Math.random() * t.hand.length);
+        const [stolen] = t.hand.splice(idx, 1);
+        addCardToHand(p, stolen);
+        msgs.push(`${cardName}从${targetLabel}手中偷走了${stolen.name}`);
       } else {
         msgs.push(`${cardName}试图抽牌，但${targetLabel}手牌为空`);
-        if (isSelfTarget) p = target; else t = target;
       }
 
     } else if (effect.buffType === BuffType.RevealHand) {
@@ -459,7 +442,7 @@ export function applyCard(
         const slot = equipped[Math.floor(Math.random() * equipped.length)];
         const discarded = target.equipment[slot]!;
         delete target.equipment[slot];
-        target.discardPile.push(discarded);
+        handleDiscardBuffs(target);
         // 移除该装备相关的buff
         target.buffs = target.buffs.filter(b => b.sourceCardId !== discarded.id);
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
@@ -574,7 +557,6 @@ export function applyCard(
 
   // 烈焰粉：上一张牌造成物理伤害后打出额外造成火焰伤害
   if (card.name === '烈焰粉' && p.causePhysicalDamage) {
-    p.causePhysicalDamage = false;
     damage(p, t, DamageType.Fire, 2, true);
   }
 
