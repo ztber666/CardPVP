@@ -29,7 +29,6 @@ export function createGame(
         healCountThisTurn: 0,
         attackCountThisTurn: 0,
         actionStrategyCountThisTurn: 0,
-        poisonTriggerCountThisTurn: 0,
         handLimitBonus: 0,
         actionLimitBonus: 0,
         damageOnDiscardCount: 0,
@@ -60,7 +59,6 @@ export function createGame(
         healCountThisTurn: 0,
         attackCountThisTurn: 0,
         actionStrategyCountThisTurn: 0,
-        poisonTriggerCountThisTurn: 0,
         handLimitBonus: 0,
         actionLimitBonus: 0,
         damageOnDiscardCount: 0,
@@ -137,7 +135,6 @@ export function startTurn(state: GameState): GameState {
   player.healCountThisTurn = 0;
   player.attackCountThisTurn = 0;
   player.actionStrategyCountThisTurn = 0;
-  player.poisonTriggerCountThisTurn = 0;
   player.jungleHpUpTriggered = false;
   player.damageOnDiscardCount = 0;
   player.playedCardTypesThisTurn = [];

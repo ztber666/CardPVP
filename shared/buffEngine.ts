@@ -67,14 +67,11 @@ export function applyEffectToPlayer(
 export function processTurnStartBuffs(player: PlayerState, playerId: string): PlayerState {
   let p = deepClonePlayer(player);
 
-  // 重置中毒回合计数器
-  p.poisonTriggerCountThisTurn = 0;
-
   // 龙息 / 尸潮：来自对手的 debuff，用 opponentId 过滤
   const damageStacks = getBuffStacks(p, BuffType.Damage, playerId);
   if(damageStacks > 0) damage(p, p, DamageType.Real, damageStacks, false);
   const hordeStacks = getBuffStacks(p, BuffType.Horde, playerId);
-  if(hordeStacks > 0) damage(p, p, DamageType.Physical, 4, false);
+  if(hordeStacks > 0) damage(p, p, DamageType.Physical, hordeStacks, true);
   // 治愈：不按来源过滤（可以是自己或对手给的）
   const healStacks = getBuffStacks(p, BuffType.Heal, playerId);
   if(healStacks > 0) heal(p, p, healStacks);

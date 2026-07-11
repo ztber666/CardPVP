@@ -41,12 +41,6 @@ export function validatePlayCard(
     return { valid: false, error: '无效的目标' };
   }
 
-  // 装备卡只能对自己使用
-  const targetSelf = action.targetId === playerId;
-  if (!targetSelf && (card.costType === CostType.Equip || card.costType === CostType.Weapon || card.costType === CostType.Field)) {
-    return { valid: false, error: '装备卡只能对自己使用' };
-  }
-
   const player = currentPlayer; // 方便后续使用
   //烈焰粉：不满足条件无法打出
   if (card.name === '烈焰粉' && !player.causePhysicalDamage) {

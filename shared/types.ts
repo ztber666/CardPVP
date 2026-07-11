@@ -71,6 +71,7 @@ export interface CardDef {
   description: string;
   weight?: number;         // 牌组权重（侦测器需要）
   sourcePlayerId?: string;   // 牌来源玩家ID (计算装备/场地效果时需要)
+  defaultTarget: 'self' | 'opponent' | 'all'; // 默认目标（用于客户端提示）
 }
 
 // ===== 激活的 Buff（运行时数据） =====
@@ -101,7 +102,6 @@ export interface PlayerState {
   healCountThisTurn: number;     // 回血类(icon3)消耗计数
   attackCountThisTurn: number;   // 攻击类(icon4)消耗计数
   actionStrategyCountThisTurn: number; // 行动+锦囊共享消耗计数
-  poisonTriggerCountThisTurn: number;
   handLimitBonus: number;       // 手牌上限加成（村庄+4）
   actionLimitBonus: number;     // 行动上限加成（冰原+1）
   damageOnDiscardCount: number;   // 绑定诅咒丢弃次数限制

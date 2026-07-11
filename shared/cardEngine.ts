@@ -48,9 +48,9 @@ export function addCardToHand(player: PlayerState, card: CardDef) {
     }
 
   // 陷阱箱：摸牌时获得凋零
-  const witherOnDraw = getBuffStacks(player, BuffType.WitherOnDraw);
-  if (witherOnDraw > 0) {
-      applyEffectToPlayer(player, BuffType.Wither, 1, undefined, 'wither_on_draw', player.id);
+  const witherOnDrawStacks = getBuffStacks(player, BuffType.WitherOnDraw);
+  if (witherOnDrawStacks > 0) {
+      applyEffectToPlayer(player, BuffType.Wither, witherOnDrawStacks, undefined, 'wither_on_draw', player.id);
   }
 
 }
@@ -135,10 +135,13 @@ export function heal(source: PlayerState, target: PlayerState, number: number) {
   //实际回血
   target.hp = Math.min(target.maxHp, target.hp + healAmt);
 
-  //中毒：回血后扣3HP（每回合限2次）
-  if (getBuffStacks(target, BuffType.Poison) > 0) {
-    damage(target, target, DamageType.Real, 3, false);
+  //中毒：回血后受伤
+  const poisonStacks = getBuffStacks(target, BuffType.Poison);
+  if (poisonStacks > 0) {
+    damage(target, target, DamageType.Real, poisonStacks, false);
+    showMessage(`${target.name}中毒，扣除${poisonStacks}点血量`, "all");
   }
+  showMessage(`${target.name}回复了${healAmt}点血量`, "all");
   return healAmt;
 }
 export enum DamageType {
@@ -181,18 +184,23 @@ export function damage(source: PlayerState, target: PlayerState, type: DamageTyp
     //格挡：减5点物理伤害，消耗全部层数后状态消失
     const blockStacks = getBuffStacks(target, BuffType.Block);
     if (blockStacks > 0 && number > 0) {
-      const reduced = Math.min(5, number);
+      const reduced = Math.min(blockStacks, number);
       number -= reduced;
       consumeInPlace(target, BuffType.Block, blockStacks);
+      showMessage(`${target.name}触发格挡，减少了${reduced}点物理伤害`, "all");
     }
     //侦测器暴击
     const dmgBoost = getBuffStacks(source, BuffType.DamageBoost);
     if (dmgBoost > 0) {
       number = Math.ceil(number * 1.5);
       consumeInPlace(source, BuffType.DamageBoost, dmgBoost);
+      showMessage(`${source.name}触发暴击，物理伤害提升50%`, "all");
     }
     //滴水石锥（物伤回血）
-    if (source.equipment?.weapon?.name === '滴水石锥') heal(source, source, 1);
+    if (source.equipment?.weapon?.name === '滴水石锥') {
+      heal(source, source, number);
+      showMessage(`滴水石锥触发, 回复${number}点血量`, "self");
+    }
     //烈焰棒：标记触发条件
     if (source.equipment?.weapon?.name === '烈焰棒') {
       source.causePhysicalDamage = true;
@@ -222,6 +230,7 @@ export function damage(source: PlayerState, target: PlayerState, type: DamageTyp
     if (hasWither) number += 1;
   }
   target.hp = Math.max(0, target.hp - number);
+  showMessage(`${target.name}受到了${number}点伤害`, "all");
   return number;
 }
 
@@ -399,7 +408,7 @@ export function applyCard(
         if (isSelfTarget) p = target; else t = target;
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
       } else {
-        applyEffectToPlayer(target, BuffType.Horde, 1, 2, card.id, p.id);
+        applyEffectToPlayer(target, BuffType.Horde, 4, 2, card.id, p.id);
         damage(target, target, DamageType.Physical, 4, true);
         if (isSelfTarget) p = target; else t = target;
         msgs.push(`${cardName}给予${targetLabel} 2回合尸潮（未丢弃<烟花>）`);
