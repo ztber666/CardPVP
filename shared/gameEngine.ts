@@ -193,12 +193,13 @@ export function endTurn(state: GameState): GameState {
     turnNumber: s.turnNumber,
     message: `${name}行动结束`,
     timestamp: Date.now(),
+    type: 'endTurn',
   });
   // 处理回合结束 Buff：双方身上来自对方的 buff 持续-1
   const opponentId = s.players[1 - endingIdx].id;
   for (let i = 0; i < s.players.length; i++) {
       s.players[i] = processTurnEndBuffs(s.players[i], opponentId);
-      s.players[i] = processTurnStartBuffs(s.players[i], opponentId);
+      s.players[i] = processTurnStartBuffs(s.players[i], s.players[1 - i], opponentId);
       // 检查胜负
       if (s.players[i].hp <= 0) {
       s.phase = GamePhase.GameOver;
@@ -217,6 +218,7 @@ export function endTurn(state: GameState): GameState {
       turnNumber: s.turnNumber,
       message: `第${s.turnNumber}回合开始`,
       timestamp: Date.now(),
+      type: 'endTurn',
     });
   }
 
@@ -231,8 +233,8 @@ export function handleDiscardBuffs(player: PlayerState, s?: GameState) {
     damage(player, player, DamageType.Real, curseStack, false);
     player.damageOnDiscardCount += 1;
     showMessage(`丢弃牌时受到${curseStack}点绑定诅咒伤害`, 'self');
-    s!.log.push({
-      turnNumber: s!.turnNumber,
+    s?.log.push({
+      turnNumber: s.turnNumber,
       message: `${player.name}丢弃牌时受到${curseStack}点绑定诅咒伤害`,
       timestamp: Date.now(),
     });
@@ -241,8 +243,8 @@ export function handleDiscardBuffs(player: PlayerState, s?: GameState) {
   // 下界荒地：丢弃牌时获得1点护盾（每回合限2次）
   if (player.equipment?.field?.name === '下界荒地') {
     applyEffectToPlayer(player, BuffType.Shield, 1, undefined, player.equipment.field.id, player.id);
-    s!.log.push({
-      turnNumber: s!.turnNumber,
+    s?.log.push({
+      turnNumber: s.turnNumber,
       message: `${player.name}丢弃牌时获得1点护盾（下界荒地）`,
       timestamp: Date.now(),
     });

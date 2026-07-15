@@ -27,8 +27,7 @@ export default function Game() {
   const [pending, setPending] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [showGameLog, setShowGameLog] = useState(false);
-  const [handOverlay, setHandOverlay] = useState<'my' | 'opponent' | null>(null);
-  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [handCollapsed, setHandCollapsed] = useState(false);
   const [recentPlayedCard, setRecentPlayedCard] = useState<{ card: CardDef; playerName: string; key: number } | null>(null);
   const playedCardTimer = useRef<ReturnType<typeof setTimeout>>();
   const playedCardKey = useRef(0);
@@ -42,7 +41,6 @@ export default function Game() {
   const [draftCardsList, setDraftCardsList] = useState<CardDef[]>([]);
   const [showBucketDialog, setShowBucketDialog] = useState(false);
   const [showEquipDialog, setShowEquipDialog] = useState(false);
-  const [showBlazeDialog, setShowBlazeDialog] = useState(false);
 
   // Ref 守卫——确保弹窗只触发一次
   const shownGuess = useRef(false);
@@ -50,7 +48,6 @@ export default function Game() {
   const shownDraft = useRef(false);
   const shownBucket = useRef(false);
   const shownEquip = useRef(false);
-  const shownBlaze = useRef(false);
   const shownEnchantReady = useRef(false);
 
   const me = gameState?.players.find(p => p.id === player?.id);
@@ -168,18 +165,16 @@ export default function Game() {
     setSelectedCard(null);
   }, []);
 
-  // 手牌浮层打开（从屏幕外滑入）
-  const openHandOverlay = useCallback((who: 'my' | 'opponent') => {
-    setHandOverlay(who);
-    requestAnimationFrame(() => setOverlayVisible(true));
-  }, []);
-
-  // 手牌浮层关闭（滑出屏幕外后移除）
-  const closeHandOverlay = useCallback(() => {
-    setOverlayVisible(false);
-    setSelectedCard(null);
-    setTimeout(() => setHandOverlay(null), 300);
-  }, []);
+  const toggleHand = useCallback(() => {
+  setHandCollapsed(prev => {
+    if (prev) {
+      // 展开时不清除选中
+    } else {
+      setSelectedCard(null); // 收起时取消选中
+    }
+    return !prev;
+  });
+}, []);
 
   // 点击空白取消选中
   const handleAreaClick = useCallback(() => {
@@ -188,12 +183,12 @@ export default function Game() {
 
   // 回合开始时自动展开手牌
   const prevTurnRef = useRef(isMyTurn);
-  useEffect(() => {
-    if (isMyTurn && !prevTurnRef.current) {
-      openHandOverlay('my');
-    }
-    prevTurnRef.current = isMyTurn;
-  }, [isMyTurn]);
+useEffect(() => {
+  if (isMyTurn && !prevTurnRef.current) {
+    setHandCollapsed(false); // 回合开始自动展开手牌
+  }
+  prevTurnRef.current = isMyTurn;
+}, [isMyTurn]);
 
   // 出牌动画（双方）
   useEffect(() => {
@@ -359,23 +354,21 @@ export default function Game() {
       )}
 
       {/* 顶部对手栏 */}
-      <div className="flex items-center justify-between h-12 shrink-0 px-4 border-b border-card-border/30 bg-page-dark/20" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2">
-          <PlayerInfo player={opponent} isOpponent />
-          <span className="text-xs font-semibold text-text-primary bg-card-bg/60 px-1.5 py-0.5 rounded border border-card-border/40">🃏{opponent.hand.length}</span>
-          <button onClick={() => openHandOverlay('opponent')}
-              className="text-[10px] text-text-secondary bg-card-bg/60 px-1.5 py-0.5 rounded border border-card-border/40 hover:bg-card-bg cursor-pointer">
-              展开
-            </button>
-        </div>
-        <button onClick={() => setShowGameLog(true)} className="text-[10px] text-text-secondary hover:text-text-primary px-1.5 py-0.5 rounded border border-card-border/30">📋 记录</button>
-      </div>
+<div className="flex items-center justify-between h-12 shrink-0 px-4 border-b border-card-border/30 bg-page-dark/20" onClick={e => e.stopPropagation()}>
+  <div className="flex items-center gap-2">
+    <PlayerInfo player={opponent} isOpponent />
+    <span className="text-xs">🃏</span>
+    <span className="text-xs font-semibold text-text-primary tabular-nums">{opponent.hand.length}</span>
+  </div>
+    <button onClick={() => setShowGameLog(true)} className="text-[10px] text-text-secondary hover:text-text-primary px-1.5 py-0.5 rounded border border-card-border/30">📋 记录</button>
+</div>
+
 
       {/* 对手装备区 */}
       <div className="flex-1 flex flex-col items-center justify-center gap-2 overflow-hidden p-2" onClick={e => e.stopPropagation()}>
         <EquipmentDisplay equipment={opponent.equipment} isOpponent />
         <div className="flex items-center gap-1 flex-wrap">
-          {opponent.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} compactMode={opponent.buffs.length > 5} />)}
+          {opponent.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} compactMode={opponent.buffs.length > 4} />)}
         </div>
         {recentPlayedCard && <PlayedCardOverlay key={recentPlayedCard.key} card={recentPlayedCard.card} playerName={recentPlayedCard.playerName} />}
       </div>
@@ -384,46 +377,67 @@ export default function Game() {
       <div className="flex items-center justify-center gap-4 h-14 shrink-0 border-y border-card-border/20 bg-page-dark/10 px-4" onClick={e => e.stopPropagation()}>
         <ActionBar isMyTurn={isMyTurn} onEndTurn={handleEndTurn} pending={pending} />
         {isMyTurn && <DebugDrawButton onDebugDraw={debugDrawCard} />}
-        <ConsumptionCounter player={me} />
+        {isMyTurn && <ConsumptionCounter player={me} />}
       </div>
 
       {/* 我方装备区 */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-2 overflow-hidden p-2" onClick={e => e.stopPropagation()}>
+      {/* 修改：添加 relative 和动态 z-index，手牌收起时 z-40 保证可点击，展开时 z-10 保证手牌在上层 */}
+      <div 
+        className={`flex-1 flex flex-col items-center justify-center gap-2 overflow-hidden p-2 relative ${handCollapsed ? 'z-40' : 'z-10'}`}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="flex items-center gap-1 flex-wrap">
-          {me.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} compactMode={me.buffs.length > 5} />)}
+          {me.buffs.map((buff, i) => <BuffBadge key={`${buff.buffType}-${i}`} buff={buff} compactMode={me.buffs.length > 4} />)}
         </div>
         <EquipmentDisplay equipment={me.equipment} onUnequip={unequipCard} />
       </div>
 
-      {/* 底部：玩家信息 + 手牌数按钮 */}
-      <div className="shrink-0 flex items-center py-2 px-3" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2">
-          <PlayerInfo player={me} />
-          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${me.hand.length >= 7 ? 'bg-red-100/60 border-red-300/50 text-accent-attack' : 'bg-card-bg/60 border-card-border/40 text-text-primary'}`}>
-            🃏{me.hand.length}
-          </span>
-          <button onClick={() => openHandOverlay('my')}
-              className="text-[10px] text-text-secondary bg-card-bg/60 px-1.5 py-0.5 rounded border border-card-border/40 hover:bg-card-bg cursor-pointer">
-              展开
-            </button>
+      {/* ===== 底部：手牌区 + 玩家信息栏（一体化） ===== */}
+      {/* 修改：底部容器 z-index 保持为 30 */}
+      <div className="shrink-0 relative z-30" onClick={e => e.stopPropagation()}>
+        {/* 手牌区 — 绝对定位在玩家信息栏正上方 */}
+        <div className="absolute bottom-full left-0 right-0">
+          <PlayerHand
+            cards={me.hand}
+            disabled={!isMyTurn || pending}
+            selectedCardId={selectedCard?.id ?? null}
+            onSelectCard={handleSelectCard}
+            collapsed={handCollapsed}
+            onToggle={toggleHand}
+          />
         </div>
-      </div>
 
-      {/* ===== 手牌展开浮层 ===== */}
-      {handOverlay && (
-        <div className="fixed inset-0 z-35" onClick={() => closeHandOverlay()}>
-          {handOverlay === 'opponent' ? (
-            <div className={`absolute top-10 left-0 right-0 w-full transition-transform duration-300 ${overlayVisible ? 'translate-y-0' : '-translate-y-[calc(100%+72px)]'}`} onClick={e => e.stopPropagation()}>
-              <PlayerHand cards={opponent.hand} disabled={true} selectedCardId={null} onSelectCard={() => {}} hidden={true} />
-            </div>
-          ) : (
-            <div className={`absolute bottom-12 left-0 right-0 w-full transition-transform duration-300 ${overlayVisible ? 'translate-y-0' : 'translate-y-[calc(100%+72px)]'}`} onClick={e => e.stopPropagation()}>
-              <PlayerHand cards={me.hand} disabled={!isMyTurn || pending} selectedCardId={selectedCard?.id ?? null}
-                onSelectCard={handleSelectCard} hidden={false} />
-            </div>
-          )}
-        </div>
-      )}
+      {/* 玩家信息栏 */}
+      <div className="flex items-center justify-between py-2 px-3 bg-page-bg/95 backdrop-blur-sm border-t border-card-border/20">
+      <div className="flex items-center gap-2">
+      <PlayerInfo player={me} />
+      {/* 重新设计的手牌数按钮 — 兼具展开/收起功能 */}
+      <button
+        onClick={(e) => { e.stopPropagation(); toggleHand(); }}
+        className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-xl border transition-all duration-300 shadow-sm
+          ${me.hand.length >= 7
+            ? (handCollapsed
+              ? 'bg-red-100/80 border-red-300/60 text-accent-attack hover:bg-red-200/80'
+              : 'bg-red-50/60 border-red-300/40 text-accent-attack')
+            : handCollapsed
+              ? 'bg-gradient-to-br from-accent-shield/15 to-accent-shield/5 border-accent-shield/40 text-accent-shield hover:from-accent-shield/25 hover:to-accent-shield/10 hover:border-accent-shield/60'
+              : 'bg-card-bg/70 border-card-border/50 text-text-primary hover:bg-card-bg hover:border-card-border'
+          }`}
+        title={handCollapsed ? '展开手牌' : '收起手牌'}
+      >
+        <span className="text-sm leading-none">🃏</span>
+        <span className="text-xs font-bold tabular-nums">{me.hand.length}</span>
+        <svg
+          className={`w-3 h-3 transition-transform duration-300 ${handCollapsed ? 'rotate-180' : ''}`}
+          viewBox="0 0 12 12"
+          fill="none"
+        >
+          <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </div> 
+</div>
 
       {/* ===== 固定覆盖层 ===== */}
 
@@ -592,7 +606,7 @@ export default function Game() {
               )}
             </div>
             <button onClick={() => setShowEquipDialog(false)} className="w-full mt-4 py-2.5 rounded-xl border border-card-border text-text-secondary text-sm hover:bg-card-bg/50">
-              取消
+              取消   
             </button>
           </div>
         </div>

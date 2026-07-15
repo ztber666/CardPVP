@@ -1,6 +1,7 @@
 import {
   GameState, PlayerState, CardDef, CostType, BuffType,
   GamePhase, GameLogEntry, ActiveBuff, COST_TYPE_NAMES,
+  BUFF_NAMES,
 } from './types';
 import { deepClone, applyEffectToPlayer, getBuffStacks, findBuff } from './buffEngine';
 import { CARDS, DEFAULT_HAND_LIMIT } from './constants';
@@ -310,14 +311,15 @@ export function applyCard(
       card.costType === CostType.Field) {
     const slotKey = card.costType === CostType.Equip ? 'equip'
                   : card.costType === CostType.Weapon ? 'weapon' : 'field';
-    if (p.equipment[slotKey]) {
-      const oldCard = p.equipment[slotKey]!;
+    const target = isSelfTarget ? p : t;
+    if (target.equipment[slotKey]) {
+      const oldCard = target.equipment[slotKey]!;
       handleDiscardBuffs(p); // 触发丢弃事件，处理相关buff
-      msgs.push(`${cardName}替换了已有的${oldCard.name}，${oldCard.name}进入废牌堆`);
-      p.buffs = p.buffs.filter(b => b.sourceCardId !== oldCard.id);
+      msgs.push(`丢弃了${oldCard.name}`);
     }
     const modifiedCard = { ...card, sourcePlayerId: p.id }; // 记录装备来源玩家ID，供buff计算时参考
-    p.equipment[slotKey] = modifiedCard;
+    target.equipment[slotKey] = modifiedCard;
+    if (isSelfTarget) p = target; else t = target;
     msgs.push(`${cardName}已装备`);
   }
 
@@ -331,7 +333,7 @@ export function applyCard(
         const target = isSelfTarget ? p : t;
         applyEffectToPlayer(target, BuffType.Heal, effect.value, effect.duration, card.id, p.id);
         heal(p, target, effect.value);
-        msgs.push(`${cardName}使${targetLabel}获得持续回血${effect.value}点（${effect.duration}回合）`);
+        msgs.push(`${cardName}使${targetLabel}获得治愈${effect.value}（持续${effect.duration}回合）`);
       } else {// 即时回血
         const target = isSelfTarget ? p : t;
         heal(p, target, effect.value);
@@ -366,7 +368,7 @@ export function applyCard(
         if (buff.stacks <= 0) target.buffs.splice(witherIdx, 1);
         msgs.push(`${cardName}为${targetLabel}移除了${removed}层凋零`);
       } else {
-        msgs.push(`${cardName}试图移除凋零，但${targetLabel}没有凋零效果`);
+        msgs.push(`(${cardName})目标没有凋零`);
       }
       if (isSelfTarget) p = target; else t = target;
 
@@ -409,9 +411,9 @@ export function applyCard(
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
       } else {
         applyEffectToPlayer(target, BuffType.Horde, 4, 2, card.id, p.id);
-        damage(target, target, DamageType.Physical, 4, true);
+        damage(p, target, DamageType.Physical, 4, true);
         if (isSelfTarget) p = target; else t = target;
-        msgs.push(`${cardName}给予${targetLabel} 2回合尸潮（未丢弃<烟花>）`);
+        msgs.push(`${cardName}给予${targetLabel} 2回合尸潮`);
       }
 
     } else if (effect.buffType === BuffType.DrawCard) {
@@ -431,7 +433,7 @@ export function applyCard(
         addCardToHand(p, stolen);
         msgs.push(`${cardName}从${targetLabel}手中偷走了${stolen.name}`);
       } else {
-        msgs.push(`${cardName}试图抽牌，但${targetLabel}手牌为空`);
+        msgs.push(`(${cardName})目标手牌为空`);
       }
 
     } else if (effect.buffType === BuffType.RevealHand) {
@@ -456,7 +458,7 @@ export function applyCard(
         target.buffs = target.buffs.filter(b => b.sourceCardId !== discarded.id);
         msgs.push(`${cardName}使${targetLabel}丢弃了${discarded.name}`);
       } else {
-        msgs.push(`${cardName}试图卸装，但${targetLabel}没有装备`);
+        msgs.push(`(${cardName})目标没有装备`);
       }
       if (isSelfTarget) p = target; else t = target;
 
@@ -474,7 +476,7 @@ export function applyCard(
         heal(p, target, buffTypes.size);
         msgs.push(`${cardName}为${targetLabel}回复了${buffTypes.size}点血量（${buffTypes.size}种状态）`);
       } else {
-        msgs.push(`${cardName}没有检测到任何状态，未回血`);
+        msgs.push(`${cardName}没有状态，未回血`);
       }
       if (isSelfTarget) p = target; else t = target;
 
@@ -482,7 +484,7 @@ export function applyCard(
       // 其他Buff效果
       const target = isSelfTarget ? p : t;
       applyEffectToPlayer(target, effect.buffType, effect.value, effect.duration, card.id, p.id);
-      msgs.push(`${cardName}对${targetLabel}施加了${effect.buffType}效果`);
+      msgs.push(`${cardName}对${target.name}施加了${effect.value}层${BUFF_NAMES[effect.buffType]}${effect.duration ? `（持续${effect.duration}回合）` : ''}`);
     }
   }
 
@@ -491,13 +493,15 @@ export function applyCard(
   // 水桶：设置待选封锁类型
   if (card.name === '水桶') {
     p.pendingBucketChoice = 'pending';
-    msgs.push('水桶：请选择封锁行动牌还是锦囊牌');
   }
 
   // 诡异钓竿：设置待选装备
   if (card.name === '诡异钓竿') {
+    if (t.equipment) {
     p.pendingEquipChoice = 'pending';
-    msgs.push('诡异钓竿：请选择要丢弃的装备');
+    } else {
+      showMessage('诡异钓竿：目标没有装备', 'self');
+    }
   }
 
   // 玻璃板：复制上一张牌的效果
@@ -515,7 +519,7 @@ export function applyCard(
       result.logMessages.forEach(msg => msgs.push(msg));
       if (lastCard.costType === CostType.Action) {
         p.actionStrategyCountThisTurn = (p.actionStrategyCountThisTurn || 0) + 1;
-        msgs.push('（玻璃板复制行动牌，额外消耗一次行动/锦囊次数）');
+        msgs[msgs.length - 1] += '（额外消耗一次行动/锦囊次数）';
       }
     } else {
       msgs.push('玻璃板没有可复制的牌');
@@ -545,9 +549,6 @@ export function applyCard(
     const matchedTypes = checkTypes.filter(ct => played.includes(ct));
     if (matchedTypes.length >= 4) {
       p.canEnchantDiscard = true;
-      msgs.push(`附魔台触发！丢弃一张牌触发其效果并摸2张`);
-    } else {
-      msgs.push(`附魔台未触发：仅打出${matchedTypes.length}种类型（需4种）`);
     }
   }
 
@@ -558,9 +559,6 @@ export function applyCard(
       p.draftCards = deckCards.map(c => JSON.parse(JSON.stringify(c)));
       p.draftPlayerPick = 0; // 当前玩家先选
       p.draftPickCount = 0;
-      msgs.push(`运输矿车展示了${deckCards.length}张牌，请选1张`);
-    } else {
-      msgs.push('运输矿车：牌组不足4张');
     }
   }
 
@@ -590,7 +588,7 @@ export function applyCard(
   // 记录日志
   const entry: GameLogEntry = {
     turnNumber: state.turnNumber,
-    message: msgs[msgs.length - 1] || `${cardName}被使用`,
+    message: msgs[msgs.length - 1] || `${p.name}打出了${cardName}`,
     timestamp: Date.now(),
   };
   state.log.push(entry);
